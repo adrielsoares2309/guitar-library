@@ -3,13 +3,13 @@ from tkinter import filedialog, messagebox
 from services.music_service import add_musica
 import os
 
-BG        = "#000000"
-BG2       = "#111111"
-BG3       = "#222222"
-DESTAQUE  = "#ffffff"
-DEST_HOV  = "#cccccc"
-BRANCO    = "#ffffff"
-CINZA     = "#888888"
+BG        = "#0a0a0a"
+BG2       = "#141414"
+BG3       = "#1e1e1e"
+BRANCO    = "#f0f0f0"
+BRANCO2   = "#cccccc"
+CINZA     = "#666666"
+CINZA2    = "#333333"
 FONTE     = ("Courier New", 10)
 FONTE_T   = ("Courier New", 11, "bold")
 FONTE_TIT = ("Courier New", 16, "bold")
@@ -18,30 +18,25 @@ caminho_audio     = ""
 caminho_partitura = ""
 
 
-def estilo_botao(btn, cor=DESTAQUE, hover=DEST_HOV):
-    btn.config(bg=cor, fg=BG, relief="flat",
-               activebackground=hover, activeforeground=BG,
+def estilo_botao(btn):
+    btn.config(bg=BRANCO, fg=BG, relief="flat",
+               activebackground=BRANCO2, activeforeground=BG,
                cursor="hand2", font=FONTE_T, bd=0, padx=10, pady=6)
-    btn.bind("<Enter>", lambda e: btn.config(bg=hover))
-    btn.bind("<Leave>", lambda e: btn.config(bg=cor))
+    btn.bind("<Enter>", lambda e: btn.config(bg=BRANCO2))
+    btn.bind("<Leave>", lambda e: btn.config(bg=BRANCO))
 
 
 def estilo_botao_secundario(btn):
-    btn.config(bg=BG3, fg=BRANCO, relief="flat",
-               activebackground="#333333", activeforeground=BRANCO,
+    btn.config(bg=CINZA2, fg=BRANCO, relief="flat",
+               activebackground=CINZA, activeforeground=BRANCO,
                cursor="hand2", font=FONTE_T, bd=0, padx=10, pady=6)
-    btn.bind("<Enter>", lambda e: btn.config(bg="#333333"))
-    btn.bind("<Leave>", lambda e: btn.config(bg=BG3))
+    btn.bind("<Enter>", lambda e: btn.config(bg=CINZA))
+    btn.bind("<Leave>", lambda e: btn.config(bg=CINZA2))
 
 
 def estilo_entrada(entry):
     entry.config(bg=BG2, fg=BRANCO, insertbackground=BRANCO,
                  relief="flat", font=FONTE_T, bd=0)
-
-
-def label_campo(pai, texto):
-    tk.Label(pai, text=texto, bg=BG, fg=CINZA,
-             font=("Courier New", 8, "bold")).pack(anchor="w", padx=40, pady=(10, 2))
 
 
 def abrir_janela_adicionar():
@@ -96,39 +91,61 @@ def abrir_janela_adicionar():
         messagebox.showinfo("Sucesso", f'"{nome}" salva com sucesso!')
         janela.destroy()
 
+    # ── Janela com scroll ────────────────────────────────
     janela = tk.Toplevel()
     janela.title("Adicionar Música")
-    janela.geometry("420x700")
+    janela.geometry("440x600")
     janela.configure(bg=BG)
-    janela.resizable(False, False)
+    janela.resizable(False, True)
     janela.grab_set()
     janela.focus_force()
 
-    tk.Label(janela, text="ADICIONAR MÚSICA", bg=BG, fg=BRANCO,
+    canvas = tk.Canvas(janela, bg=BG, highlightthickness=0)
+    scrollbar = tk.Scrollbar(janela, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+    scrollbar.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+
+    frame = tk.Frame(canvas, bg=BG)
+    frame_id = canvas.create_window((0, 0), window=frame, anchor="nw")
+
+    def atualizar_scroll(event=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.itemconfig(frame_id, width=canvas.winfo_width())
+
+    frame.bind("<Configure>", atualizar_scroll)
+    canvas.bind("<Configure>", lambda e: canvas.itemconfig(frame_id, width=e.width))
+    canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+    def lbl(texto):
+        tk.Label(frame, text=texto, bg=BG, fg=CINZA,
+                 font=("Courier New", 8, "bold")).pack(anchor="w", padx=40, pady=(10, 2))
+
+    def entrada_campo(valor=""):
+        e = tk.Entry(frame, width=36)
+        estilo_entrada(e)
+        e.insert(0, valor)
+        e.pack(padx=40, ipady=6, fill="x")
+        return e
+
+    # ── Conteúdo ─────────────────────────────────────────
+    tk.Label(frame, text="ADICIONAR MÚSICA", bg=BG, fg=BRANCO,
              font=FONTE_TIT).pack(pady=(24, 2))
-    tk.Label(janela, text="─" * 36, bg=BG, fg=BG3).pack(pady=(0, 8))
+    tk.Label(frame, text="─" * 36, bg=BG, fg=CINZA2).pack(pady=(0, 8))
 
-    label_campo(janela, "NOME")
-    entrada_nome = tk.Entry(janela, width=36)
-    estilo_entrada(entrada_nome)
-    entrada_nome.pack(padx=40, ipady=6, fill="x")
+    lbl("NOME")
+    entrada_nome = entrada_campo()
 
-    label_campo(janela, "ARTISTA")
-    entrada_artista = tk.Entry(janela, width=36)
-    estilo_entrada(entrada_artista)
-    entrada_artista.pack(padx=40, ipady=6, fill="x")
+    lbl("ARTISTA")
+    entrada_artista = entrada_campo()
 
-    label_campo(janela, "ÁLBUM")
-    entrada_album = tk.Entry(janela, width=36)
-    estilo_entrada(entrada_album)
-    entrada_album.pack(padx=40, ipady=6, fill="x")
+    lbl("ÁLBUM")
+    entrada_album = entrada_campo()
 
-    label_campo(janela, "ANO")
-    entrada_ano = tk.Entry(janela, width=36)
-    estilo_entrada(entrada_ano)
-    entrada_ano.pack(padx=40, ipady=6, fill="x")
+    lbl("ANO")
+    entrada_ano = entrada_campo()
 
-    label_campo(janela, "TABLATURA (ASCII)")
+    lbl("TABLATURA (ASCII)")
     exemplo = (
         "E|--0--| (Mi aguda)\n"
         "B|--2--|\n"
@@ -137,33 +154,33 @@ def abrir_janela_adicionar():
         "A|--0--|\n"
         "E|-----| (Mi grave)"
     )
-    texto_tablatura = tk.Text(janela, height=7, width=36,
+    texto_tablatura = tk.Text(frame, height=7, width=36,
                                font=("Courier New", 10),
                                bg=BG2, fg=BRANCO, insertbackground=BRANCO,
                                relief="flat", bd=0, padx=8, pady=8)
     texto_tablatura.insert("1.0", exemplo)
     texto_tablatura.pack(padx=40, fill="x")
 
-    tk.Label(janela, text="─" * 36, bg=BG, fg=BG3).pack(pady=(12, 6))
+    tk.Label(frame, text="─" * 36, bg=BG, fg=CINZA2).pack(pady=(12, 6))
 
-    btn_audio = tk.Button(janela, text="♪  SELECIONAR ÁUDIO", command=selecionar_audio)
+    btn_audio = tk.Button(frame, text="♪  SELECIONAR ÁUDIO", command=selecionar_audio)
     estilo_botao_secundario(btn_audio)
     btn_audio.pack(padx=40, pady=(0, 4), fill="x")
 
-    label_audio = tk.Label(janela, text="Nenhum áudio selecionado",
+    label_audio = tk.Label(frame, text="Nenhum áudio selecionado",
                             bg=BG, fg=CINZA, font=FONTE)
     label_audio.pack(padx=40, anchor="w")
 
-    btn_partitura = tk.Button(janela, text="◉  SELECIONAR PARTITURA", command=selecionar_partitura)
+    btn_partitura = tk.Button(frame, text="◉  SELECIONAR PARTITURA", command=selecionar_partitura)
     estilo_botao_secundario(btn_partitura)
     btn_partitura.pack(padx=40, pady=(8, 4), fill="x")
 
-    label_partitura = tk.Label(janela, text="Nenhuma partitura selecionada",
+    label_partitura = tk.Label(frame, text="Nenhuma partitura selecionada",
                                 bg=BG, fg=CINZA, font=FONTE)
     label_partitura.pack(padx=40, anchor="w")
 
-    tk.Label(janela, text="─" * 36, bg=BG, fg=BG3).pack(pady=(12, 6))
+    tk.Label(frame, text="─" * 36, bg=BG, fg=CINZA2).pack(pady=(12, 6))
 
-    btn_salvar = tk.Button(janela, text="✔  SALVAR MÚSICA", command=salvar)
+    btn_salvar = tk.Button(frame, text="✔  SALVAR MÚSICA", command=salvar)
     estilo_botao(btn_salvar)
-    btn_salvar.pack(padx=40, pady=(0, 20), fill="x")
+    btn_salvar.pack(padx=40, pady=(0, 30), fill="x")
