@@ -1,19 +1,18 @@
-# Ignorar arquivos Python compilados
+# Python
 __pycache__/
-database.cpython-312.pyc
-database.cpython-314.pyc
-add_music_window.cpython-312.pyc
-edit_music_window.cpython-312.pyc
-main_window.cpython-312.pyc
-main_window.cpython-314.pyc
-music_service.cpython-312.pyc
-music_service.cpython-314.pyc
+*.pyc
+*.pyo
 
-# Ignorar ambiente virtual
+# Ambientes virtuais
 venv/
-
-# Ignorar banco de dados local
-musicas.db
-
-#venv
+.venv/
 pyvenv.cfg
+
+# Banco de dados
+musicas.db
+database/musicas.db
+
+# PyInstaller
+build/
+dist/
+*.spec
