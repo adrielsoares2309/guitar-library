@@ -50,7 +50,7 @@ def iniciar_interface():
     # JANELA PRINCIPAL
     # ════════════════════════════════════════════════════
     janela = ctk.CTk()
-    janela.title("Guitar Library")
+    janela.title("Gralha")
     janela.geometry("680x560")
     janela.configure(fg_color=FUNDO)
     janela.resizable(True, True)
