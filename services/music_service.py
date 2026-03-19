@@ -1,13 +1,10 @@
 import sqlite3
-import os
-
-# Aponta para database/musicas.db a partir da raiz do projeto
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "database", "musicas.db")
+from database.database import get_caminho_banco
 
 
 def buscar_musica(nome):
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -23,7 +20,7 @@ def buscar_musica(nome):
 
 def buscar_musica_completa(nome):
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -39,7 +36,8 @@ def buscar_musica_completa(nome):
 
 def listar_musicas():
     """Retorna todas as músicas cadastradas ordenadas por nome."""
-    conn = sqlite3.connect(DB_PATH)
+
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -59,7 +57,8 @@ def filtrar_musicas(texto):
     Prioridade: musicas que COMECAM com o texto vem primeiro,
     depois as que CONTEM o texto, ambos em ordem alfabetica.
     """
-    conn = sqlite3.connect(DB_PATH)
+
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     like = f"%{texto}%"
@@ -84,7 +83,7 @@ def filtrar_musicas(texto):
 
 def add_musica(nome, artista, album, ano, cifra, tablatura, audio, partitura):
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -99,7 +98,7 @@ def add_musica(nome, artista, album, ano, cifra, tablatura, audio, partitura):
 
 def editar_musica(id, nome, artista, album, ano, cifra, tablatura, audio, partitura):
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -115,7 +114,7 @@ def editar_musica(id, nome, artista, album, ano, cifra, tablatura, audio, partit
 
 def excluir_musica(id):
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM musicas WHERE id = ?", (id,))
