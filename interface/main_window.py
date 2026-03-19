@@ -55,6 +55,12 @@ def iniciar_interface():
     janela.configure(fg_color=FUNDO)
     janela.resizable(True, True)
 
+    # ── Ícone da janela (barra de título e taskbar) ──────
+    _ICO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "..", "assets", "logo.ico")
+    if os.path.exists(_ICO_PATH):
+        janela.iconbitmap(_ICO_PATH)
+
     sidebar_visivel = False
 
     # ── Ícones ───────────────────────────────────────────
@@ -75,6 +81,7 @@ def iniciar_interface():
             fg_color=SIDEBAR_BG,
             border_width=1, border_color=CINZA_BD
         )
+
         ctk.CTkLabel(
             sidebar, text="MENU",
             font=ctk.CTkFont("Segoe UI", 11, "bold"),
