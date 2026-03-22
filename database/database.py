@@ -3,7 +3,7 @@ import os
 
 def get_caminho_banco():
     # Cria a pasta de dados do app na pasta AppData do usuário
-    pasta = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "GuitarLibrary")
+    pasta = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Gralha")
     os.makedirs(pasta, exist_ok=True)
     return os.path.join(pasta, "musicas.db")
 
