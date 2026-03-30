@@ -1,4 +1,4 @@
-from interface.main_window import iniciar_interface
+from interface.windows.main_window import iniciar_interface
 from database.database import criar_tabela
 
 def main():
