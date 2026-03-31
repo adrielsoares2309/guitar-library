@@ -14,23 +14,28 @@ TEXTO = "#1a1a1a"
 SUBTEXTO = "#666666"
 CINZA_BD = "#e0e0e0"
 
+# Variáveis globais para armazenar caminhos dos arquivos
 caminho_audio = ""
 caminho_partitura = ""
 
 
 def abrir_janela_adicionar():
     global caminho_audio, caminho_partitura
+    # Reseta os caminhos ao abrir a janela
     caminho_audio = ""
     caminho_partitura = ""
 
+    # Cria uma nova janela (popup)
     janela = ctk.CTkToplevel()
     janela.title("Adicionar Musica")
     janela.geometry("480x720")
     janela.configure(fg_color=FUNDO)
     janela.resizable(False, True)
+    # Bloqueia interação com outras janelas
     janela.grab_set()
     janela.focus_force()
 
+    #Configura o topo da página criada
     header = ctk.CTkFrame(janela, fg_color=BRANCO, corner_radius=0)
     header.pack(fill="x")
     ctk.CTkLabel(
@@ -40,6 +45,7 @@ def abrir_janela_adicionar():
         text_color=TEXTO,
     ).pack(side="left", padx=24, pady=18)
 
+    #Adiciona o scroll na janela
     scroll = ctk.CTkScrollableFrame(
         janela,
         fg_color=FUNDO,
@@ -57,7 +63,8 @@ def abrir_janela_adicionar():
             text_color=SUBTEXTO,
             anchor="w",
         ).pack(anchor="w", padx=24, pady=(16, 4))
-
+    
+    # Campo de entrada simples (input)
     def campo_entrada(pai, placeholder=""):
         entrada = ctk.CTkEntry(
             pai,
@@ -74,6 +81,7 @@ def abrir_janela_adicionar():
         entrada.pack(fill="x", padx=24, pady=(0, 2))
         return entrada
 
+    # Campo de texto grande (para cifra/tablatura)
     def campo_texto(pai, altura=6):
         frame = ctk.CTkFrame(
             pai,
@@ -95,6 +103,7 @@ def abrir_janela_adicionar():
         txt.pack(fill="both", expand=True, padx=2, pady=2)
         return txt
 
+    # Botão para selecionar arquivos
     def btn_arquivo(pai, icone, texto, cmd):
         ctk.CTkButton(
             pai,
@@ -109,12 +118,14 @@ def abrir_janela_adicionar():
             anchor="w",
         ).pack(fill="x", padx=24, pady=(0, 4))
 
+    # Valida a URL
     def url_valida(url):
         if not url:
             return True
         partes = urlparse(url)
         return partes.scheme in {"http", "https"} and bool(partes.netloc)
 
+    # CARD PRINCIPAL (FORMULÁRIO)
     card = ctk.CTkFrame(
         scroll,
         fg_color=CARD_BG,
@@ -124,10 +135,11 @@ def abrir_janela_adicionar():
     )
     card.pack(fill="x", padx=16, pady=16)
 
-    secao(card, "NOME  *")
+    # CAMPOS BÁSICOS
+    secao(card, "NOME")
     entrada_nome = campo_entrada(card, "Nome da musica")
 
-    secao(card, "ARTISTA  *")
+    secao(card, "ARTISTA")
     entrada_artista = campo_entrada(card, "Nome do artista")
 
     secao(card, "ALBUM")
@@ -136,15 +148,18 @@ def abrir_janela_adicionar():
     secao(card, "ANO")
     entrada_ano = campo_entrada(card, "Ex: 2024")
 
+    # Linha separadora
     ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(
         fill="x", padx=24, pady=(16, 0)
     )
-
+    
+    # CIFRA E TABLATURA
     secao(card, "CIFRA  (acordes)")
     entrada_cifra = campo_texto(card, altura=5)
 
     secao(card, "TABLATURA  (ASCII)")
     entrada_tablatura = campo_texto(card, altura=6)
+    # Texto inicial da tablatura
     entrada_tablatura.insert(
         "1.0",
         "E|--0--| (Mi aguda)\n"
@@ -154,11 +169,12 @@ def abrir_janela_adicionar():
         "A|--0--|\n"
         "E|-----| (Mi grave)",
     )
-
+    
+    # Linha separadora
     ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(
         fill="x", padx=24, pady=(16, 0)
     )
-
+    # AUDIO
     secao(card, "AUDIO")
     label_audio = ctk.CTkLabel(
         card,
@@ -169,6 +185,7 @@ def abrir_janela_adicionar():
     )
     label_audio.pack(anchor="w", padx=24, pady=(0, 6))
 
+    # Função para selecionar áudio
     def selecionar_audio():
         global caminho_audio
         arquivo = filedialog.askopenfilename(
@@ -184,11 +201,13 @@ def abrir_janela_adicionar():
 
     btn_arquivo(card, ">", "SELECIONAR AUDIO", selecionar_audio)
 
+    # LINK
     secao(card, "LINK EXTERNO")
     entrada_link = campo_entrada(
         card, "https://youtube.com/... ou https://open.spotify.com/..."
     )
 
+    #PARTITURA
     secao(card, "PARTITURA  (PDF)")
     label_partitura = ctk.CTkLabel(
         card,
@@ -199,6 +218,7 @@ def abrir_janela_adicionar():
     )
     label_partitura.pack(anchor="w", padx=24, pady=(0, 6))
 
+    # Função para selecionar PDF
     def selecionar_partitura():
         global caminho_partitura
         arquivo = filedialog.askopenfilename(
@@ -214,10 +234,12 @@ def abrir_janela_adicionar():
 
     btn_arquivo(card, "PDF", "SELECIONAR PARTITURA", selecionar_partitura)
 
+    #Linha separadora
     ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(
         fill="x", padx=24, pady=(12, 0)
     )
 
+    # FUNÇÃO DE SALVAR
     def salvar():
         nome = entrada_nome.get().strip()
         artista = entrada_artista.get().strip()
@@ -245,6 +267,7 @@ def abrir_janela_adicionar():
             )
             return
 
+        # Salva no banco
         add_musica(
             nome,
             artista,
@@ -256,13 +279,16 @@ def abrir_janela_adicionar():
             link_externo,
             caminho_partitura,
         )
+        # Feedback para o usuário
         messagebox.showinfo("Sucesso", f'"{nome}" salva com sucesso!')
+        # Fecha a janela
         janela.destroy()
 
+    # Botão final de salvar
     ctk.CTkButton(
         card,
         text="SALVAR MUSICA",
-        command=salvar,
+        command=salvar, # executa a função salvar
         fg_color=AZUL,
         hover_color=AZUL_HOV,
         text_color=BRANCO,

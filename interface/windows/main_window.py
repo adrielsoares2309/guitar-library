@@ -1,8 +1,8 @@
 import customtkinter as ctk
-from tkinter import messagebox
-from PIL import Image
-import os
-import webbrowser
+from tkinter import messagebox # Para exibir mensagens (alertas, confirmações, etc.)
+from PIL import Image # Para manipular imagens (ícones)
+import os # Manipulação de arquivos e caminhos
+import webbrowser # Para abrir links no navegador
 
 from services.music_service import excluir_musica, listar_musicas, filtrar_musicas
 from interface.windows.add_music_window import abrir_janela_adicionar
@@ -22,6 +22,7 @@ SUBTEXTO = "#666666"
 CINZA_BD = "#e0e0e0"
 LINHA_ALT = "#fafafa"
 
+# VARIÁVEIS GLOBAIS (ESTADO DA UI)
 cifra = ""
 tablatura = ""
 audio = ""
@@ -29,35 +30,43 @@ link_externo = ""
 partitura = ""
 musica_atual = None
 
+# Caminho da pasta de ícones
 ICONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "icons")
 
-
+# CARREGAMENTO DE ÍCONES
 def carregar_icone(nome_arquivo, tamanho=(20, 20)):
     caminho = os.path.join(ICONS_DIR, nome_arquivo)
+    # Se não existir, retorna None
     if not os.path.exists(caminho):
         return None
     try:
+        # Abre, converte e redimensiona a imagem
         img = Image.open(caminho).convert("RGBA").resize(tamanho, Image.LANCZOS)
+        # Converte para formato compatível com CustomTkinter
         return ctk.CTkImage(light_image=img, dark_image=img, size=tamanho)
     except Exception:
         return None
 
-
+# FUNÇÃO PRINCIPAL DA INTERFACE
 def iniciar_interface():
     global cifra, tablatura, audio, link_externo, partitura, musica_atual
 
+    # Cria a janela principal
     janela = ctk.CTk()
     janela.title("Gralha")
     janela.geometry("680x560")
     janela.configure(fg_color=FUNDO)
     janela.resizable(True, True)
 
+    # Define ícone da janela (se existir)
     icone_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "logo.ico")
     if os.path.exists(icone_path):
         janela.iconbitmap(icone_path)
 
+    # Controle de exibição da sidebar
     sidebar_visivel = False
 
+    # Carrega ícones
     ic_add = carregar_icone("add.png", (25, 25))
     ic_edit = carregar_icone("edit.png", (25, 25))
     ic_delete = carregar_icone("delete.png", (25, 25))
@@ -66,6 +75,7 @@ def iniciar_interface():
     ic_partitura = carregar_icone("partitura.png", (25, 25))
     ic_audio = carregar_icone("audio.png", (25, 25))
 
+    # SIDEBAR (MENU LATERAL)
     def criar_sidebar():
         sidebar = ctk.CTkFrame(
             janela,
@@ -75,7 +85,7 @@ def iniciar_interface():
             border_width=1,
             border_color=CINZA_BD,
         )
-
+        # Título do menu
         ctk.CTkLabel(
             sidebar,
             text="MENU",
@@ -83,6 +93,7 @@ def iniciar_interface():
             text_color=SUBTEXTO,
         ).pack(pady=(28, 16), padx=20, anchor="w")
 
+        # Função para criar botões do menu
         def btn_sidebar(texto, comando, icone_ctk=None):
             ctk.CTkButton(
                 sidebar,
@@ -99,6 +110,7 @@ def iniciar_interface():
                 anchor="w",
             ).pack(fill="x", padx=12, pady=5)
 
+        # Botões do menu
         btn_sidebar("ADICIONAR", lambda: adicionar(), ic_add)
         btn_sidebar("EDITAR", lambda: editar(), ic_edit)
         btn_sidebar("EXCLUIR", lambda: excluir(), ic_delete)
@@ -106,9 +118,11 @@ def iniciar_interface():
 
     sidebar_frame = criar_sidebar()
 
+    # ÁREA PRINCIPAL
     frame_conteudo = ctk.CTkFrame(janela, fg_color=FUNDO, corner_radius=0)
     frame_conteudo.pack(side="left", fill="both", expand=True)
 
+    # Mostra/oculta sidebar
     def toggle_sidebar():
         nonlocal sidebar_visivel
         if sidebar_visivel:
@@ -118,13 +132,14 @@ def iniciar_interface():
             sidebar_frame.pack(side="left", fill="y", before=frame_conteudo)
             sidebar_visivel = True
 
+    # BOTÃO DE ABRIR A SIDEBAR
     topbar = ctk.CTkFrame(frame_conteudo, fg_color=FUNDO, corner_radius=0, height=64)
     topbar.pack(fill="x")
     topbar.pack_propagate(False)
 
     ctk.CTkButton(
         topbar,
-        text="=",
+        text="☰",
         command=toggle_sidebar,
         width=44,
         height=44,
@@ -135,6 +150,7 @@ def iniciar_interface():
         font=ctk.CTkFont("Segoe UI", 18, "bold"),
     ).pack(side="left", padx=(14, 0), pady=10)
 
+    # BARRA DE BUSCA
     frame_busca = ctk.CTkFrame(
         topbar,
         fg_color=BRANCO,
@@ -155,6 +171,7 @@ def iniciar_interface():
         corner_radius=25,
         height=38,
     )
+    #Barra de pesquisa dinâmica
     entrada.pack(side="left", fill="x", expand=True, padx=(14, 4), pady=2)
     entrada.bind("<Return>", lambda e: on_busca())
     entrada.bind("<KeyRelease>", lambda e: on_busca())
@@ -171,23 +188,28 @@ def iniciar_interface():
         text_color=BRANCO,
         font=ctk.CTkFont("Segoe UI", 12, "bold"),
     ).pack(side="right", padx=4, pady=2)
-
+    
+    # CORPO PRINCIPAL
     corpo = ctk.CTkFrame(frame_conteudo, fg_color=FUNDO, corner_radius=0)
     corpo.pack(fill="both", expand=True)
-
+    
+    # Limpa o conteúdo da tela
     def limpar_corpo():
         for widget in corpo.winfo_children():
             widget.destroy()
 
+    # LISTA DE MÚSICAS
     def mostrar_lista(musicas=None):
         global musica_atual, cifra, tablatura, audio, link_externo, partitura
         musica_atual = None
         cifra = tablatura = audio = link_externo = partitura = ""
 
         limpar_corpo()
+        # Se não receber lista, busca todas do banco
         if musicas is None:
             musicas = listar_musicas()
 
+        # Scroll para lista
         scroll = ctk.CTkScrollableFrame(
             corpo,
             fg_color=FUNDO,
@@ -210,7 +232,8 @@ def iniciar_interface():
             ).pack(side="left", fill="x", expand=expandir, padx=(10, 4))
 
         ctk.CTkFrame(scroll, fg_color=CINZA_BD, height=1, corner_radius=0).pack(fill="x", padx=16, pady=(4, 2))
-
+        
+        # Caso não tenha músicas
         if not musicas:
             ctk.CTkLabel(
                 scroll,
@@ -220,7 +243,8 @@ def iniciar_interface():
                 justify="center",
             ).pack(pady=40)
             return
-
+        
+        # Pega cada música do banco e transforma em uma linha clicável na tela
         for i, musica in enumerate(musicas):
             _, nome_r, artista_r, album_r, ano_r, *_ = musica
             cor_linha = CARD_BG if i % 2 == 0 else LINHA_ALT
@@ -260,7 +284,7 @@ def iniciar_interface():
             linha.bind("<Button-1>", abrir_musica)
             for filho in linha.winfo_children():
                 filho.bind("<Button-1>", abrir_musica)
-
+    # Responsável por mostrar os detalhes de uma música selecionada
     def mostrar_card(resultado):
         global musica_atual, cifra, tablatura, audio, link_externo, partitura
 
@@ -269,6 +293,7 @@ def iniciar_interface():
 
         limpar_corpo()
 
+        #Cria scroll
         scroll_area = ctk.CTkScrollableFrame(
             corpo,
             fg_color=FUNDO,
@@ -336,8 +361,9 @@ def iniciar_interface():
                 height=42,
                 anchor="w",
             ).pack(fill="x", pady=4)
-
-        btn_acao("CIFRA", lambda: abrir_viewer("Cifra", cifra), ic_cifra, ativo=bool(cifra))
+        
+        #Botões de ação após abrir a música
+        btn_acao("CIFRA", lambda: abrir_viewer("Cifra", cifra), ic_cifra, ativo=bool(cifra)) 
         btn_acao("TABLATURA", lambda: abrir_viewer("Tablatura", tablatura), ic_tablatura, ativo=bool(tablatura))
         btn_acao("PARTITURA", visualizar_partitura, ic_partitura, ativo=bool(partitura))
         btn_acao("AUDIO", tocar_audio, ic_audio, ativo=bool(audio))
@@ -380,6 +406,7 @@ def iniciar_interface():
         abrir_janela_adicionar()
         janela.after(300, mostrar_lista)
 
+    #Função de abrir a janela de editar a música
     def editar():
         if not musica_atual:
             messagebox.showwarning("Atencao", "Selecione ou busque uma musica primeiro!")
@@ -392,6 +419,7 @@ def iniciar_interface():
             ),
         )
 
+    #Função de abrir a janela de excluir a música
     def excluir():
         if not musica_atual:
             messagebox.showwarning("Atencao", "Selecione ou busque uma musica primeiro!")
@@ -403,6 +431,7 @@ def iniciar_interface():
             entrada.delete(0, "end")
             mostrar_lista()
 
+    #Função para abrir janela pop up de 
     def abrir_viewer(titulo, conteudo):
         viewer = ctk.CTkToplevel(janela)
         viewer.title(titulo)
@@ -433,6 +462,7 @@ def iniciar_interface():
         txt.insert("1.0", conteudo)
         txt.configure(state="disabled")
 
+    #Função para tocar o audio 
     def tocar_audio():
         if not audio:
             return
@@ -441,6 +471,7 @@ def iniciar_interface():
         else:
             messagebox.showwarning("Aviso", f"Arquivo de audio nao encontrado:\n{audio}")
 
+    # Função para abrir link cadastrados
     def abrir_link_externo():
         if not link_externo:
             return
@@ -449,6 +480,7 @@ def iniciar_interface():
         except Exception:
             messagebox.showwarning("Aviso", f"Nao foi possivel abrir o link:\n{link_externo}")
 
+    # Função para abrir o pdf da partitura 
     def visualizar_partitura():
         if not partitura:
             return
@@ -457,5 +489,5 @@ def iniciar_interface():
         else:
             messagebox.showwarning("Aviso", f"Arquivo de partitura nao encontrado:\n{partitura}")
 
-    mostrar_lista()
-    janela.mainloop()
+    mostrar_lista() #busca as músicas no banco e cria a lista na tela
+    janela.mainloop() #mantém a janela aberta
