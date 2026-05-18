@@ -1,113 +1,114 @@
-import customtkinter as ctk
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 
-AZUL = "#2B5BA8"
-BRANCO = "#ffffff"
-FUNDO = "#f0f0eb"
-CARD_BG = "#ffffff"
-TEXTO = "#1a1a1a"
-SUBTEXTO = "#666666"
-CINZA_BD = "#e0e0e0"
-LINHA_ALT = "#fafafa"
+def _refresh_style(widget: QWidget) -> None:
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
 
-class SpotifySearchWindow(ctk.CTkToplevel):
-    def __init__(self, master, resultados, on_select):
-        super().__init__(master)
+class _ResultCard(QFrame):
+    clicked = Signal(object)
+
+    def __init__(self, resultado: dict, alternate: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.resultado = resultado
+        self.setProperty("row", True)
+        self.setProperty("alternate", alternate)
+        self.setCursor(Qt.PointingHandCursor)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(4)
+
+        title = QLabel(resultado.get("nome", "") or "-")
+        title_font = title.font()
+        title_font.setBold(True)
+        title.setFont(title_font)
+
+        detalhes = [
+            resultado.get("artista", "") or "-",
+            resultado.get("album", "") or "-",
+            resultado.get("ano", "") or "-",
+        ]
+        subtitle = QLabel("  -  ".join(detalhes))
+        subtitle.setObjectName("mutedLabel")
+
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.resultado)
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event) -> None:
+        self.setProperty("selected", True)
+        _refresh_style(self)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.setProperty("selected", False)
+        _refresh_style(self)
+        super().leaveEvent(event)
+
+
+class SpotifySearchWindow(QDialog):
+    selected = Signal(dict)
+
+    def __init__(self, parent=None, resultados=None, on_select=None, master=None) -> None:
+        super().__init__(parent or master)
         self.resultados = resultados or []
-        self.on_select = on_select
+        if on_select:
+            self.selected.connect(on_select)
 
-        self.title("Resultados Spotify")
-        self.geometry("560x420")
-        self.configure(fg_color=FUNDO)
-        self.minsize(480, 360)
-        self.grab_set()
-        self.focus_force()
+        self.setWindowTitle("Resultados Spotify")
+        self.resize(560, 420)
+        self.setMinimumSize(480, 360)
+        self.setModal(True)
 
-        header = ctk.CTkFrame(self, fg_color=FUNDO, corner_radius=0, height=58)
-        header.pack(fill="x")
-        header.pack_propagate(False)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 16)
+        root.setSpacing(10)
 
-        ctk.CTkLabel(
-            header,
-            text="RESULTADOS SPOTIFY",
-            font=ctk.CTkFont("Segoe UI", 15, "bold"),
-            text_color=TEXTO,
-        ).pack(anchor="w", padx=20, pady=(18, 4))
+        title = QLabel("RESULTADOS SPOTIFY")
+        title.setObjectName("titleLabel")
+        count = QLabel(f"{len(self.resultados)} resultado(s)")
+        count.setObjectName("mutedLabel")
+        root.addWidget(title)
+        root.addWidget(count)
 
-        ctk.CTkLabel(
-            header,
-            text=f"{len(self.resultados)} resultado(s)",
-            font=ctk.CTkFont("Segoe UI", 11),
-            text_color=SUBTEXTO,
-        ).pack(anchor="w", padx=20)
-
-        scroll = ctk.CTkScrollableFrame(
-            self,
-            fg_color=FUNDO,
-            corner_radius=0,
-            scrollbar_button_color=CINZA_BD,
-            scrollbar_button_hover_color=SUBTEXTO,
-        )
-        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content.setObjectName("scrollContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
 
         if not self.resultados:
-            ctk.CTkLabel(
-                scroll,
-                text="Nenhuma musica encontrada.",
-                font=ctk.CTkFont("Segoe UI", 12),
-                text_color=SUBTEXTO,
-            ).pack(pady=40)
+            empty = QLabel("Nenhuma musica encontrada.")
+            empty.setObjectName("emptyLabel")
+            empty.setAlignment(Qt.AlignCenter)
+            content_layout.addWidget(empty)
+            content_layout.addStretch(1)
             return
 
-        for indice, item in enumerate(self.resultados):
-            cor_linha = CARD_BG if indice % 2 == 0 else LINHA_ALT
-            card = ctk.CTkFrame(
-                scroll,
-                fg_color=cor_linha,
-                corner_radius=12,
-                border_width=1,
-                border_color=CINZA_BD,
-                cursor="hand2",
-            )
-            card.pack(fill="x", padx=4, pady=4)
+        for index, item in enumerate(self.resultados):
+            card = _ResultCard(item, alternate=bool(index % 2))
+            card.clicked.connect(self._select)
+            content_layout.addWidget(card)
+        content_layout.addStretch(1)
 
-            ctk.CTkLabel(
-                card,
-                text=item.get("nome", "") or "-",
-                font=ctk.CTkFont("Segoe UI", 12, "bold"),
-                text_color=TEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(10, 0))
-
-            detalhes = [
-                item.get("artista", "") or "-",
-                item.get("album", "") or "-",
-                item.get("ano", "") or "-",
-            ]
-            ctk.CTkLabel(
-                card,
-                text="  -  ".join(detalhes),
-                font=ctk.CTkFont("Segoe UI", 10),
-                text_color=SUBTEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(4, 10))
-
-            def selecionar(event=None, resultado=item):
-                if self.on_select:
-                    self.on_select(resultado)
-                self.destroy()
-
-            def on_enter(event, frame=card):
-                frame.configure(border_color=AZUL)
-
-            def on_leave(event, frame=card):
-                frame.configure(border_color=CINZA_BD)
-
-            card.bind("<Button-1>", selecionar)
-            card.bind("<Enter>", on_enter)
-            card.bind("<Leave>", on_leave)
-            for child in card.winfo_children():
-                child.bind("<Button-1>", selecionar)
-                child.bind("<Enter>", on_enter)
-                child.bind("<Leave>", on_leave)
+    def _select(self, resultado: dict) -> None:
+        self.selected.emit(resultado)
+        self.accept()

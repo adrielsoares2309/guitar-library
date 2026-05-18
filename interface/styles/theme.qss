@@ -1,1 +1,218 @@
-#ADICIONE O CÓDIGO AQUI
+QMainWindow, QDialog, QWidget {
+    background-color: #f0f0eb;
+    color: #1a1a1a;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 12px;
+}
+
+QFrame#topbar, QFrame#header, QWidget#contentArea {
+    background-color: #f0f0eb;
+}
+
+QFrame#sidebar, QFrame#card, QFrame#searchBox, QFrame#panel {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+}
+
+QFrame#sidebar {
+    border-radius: 0;
+}
+
+QFrame#card, QFrame#panel {
+    border-radius: 8px;
+}
+
+QFrame#searchBox {
+    border-radius: 20px;
+}
+
+QFrame#separator {
+    background-color: #e0e0e0;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+
+QLabel {
+    color: #1a1a1a;
+    background: transparent;
+}
+
+QLabel#titleLabel {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+QLabel#sectionLabel, QLabel#mutedLabel {
+    color: #666666;
+}
+
+QLabel#sectionLabel {
+    font-size: 10px;
+    font-weight: 700;
+}
+
+QLabel#emptyLabel {
+    color: #666666;
+    font-size: 12px;
+}
+
+QPushButton {
+    background-color: #2B5BA8;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-weight: 700;
+}
+
+QPushButton:hover {
+    background-color: #1E4280;
+}
+
+QPushButton:disabled {
+    background-color: #cccccc;
+    color: #888888;
+}
+
+QPushButton#iconButton {
+    min-width: 36px;
+    max-width: 36px;
+    min-height: 36px;
+    max-height: 36px;
+    border-radius: 8px;
+    padding: 0;
+    font-size: 16px;
+}
+
+QPushButton#secondaryButton {
+    background-color: #e0e0e0;
+    color: #1a1a1a;
+}
+
+QPushButton#secondaryButton:hover {
+    background-color: #d0d0d0;
+}
+
+QPushButton#dangerButton {
+    background-color: #cccccc;
+    color: #1a1a1a;
+}
+
+QPushButton#dangerButton:hover {
+    background-color: #bbbbbb;
+}
+
+QLineEdit, QPlainTextEdit {
+    background-color: #ffffff;
+    color: #1a1a1a;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 8px 10px;
+    selection-background-color: #2B5BA8;
+    selection-color: #ffffff;
+}
+
+QLineEdit:focus, QPlainTextEdit:focus {
+    border-color: #2B5BA8;
+}
+
+QLineEdit#searchInput {
+    border: none;
+    border-radius: 18px;
+}
+
+QPlainTextEdit#viewerText, QPlainTextEdit#monoText {
+    font-family: "Courier New", Consolas, monospace;
+}
+
+QScrollArea {
+    border: none;
+    background-color: #f0f0eb;
+}
+
+QScrollArea QWidget#scrollContent {
+    background-color: #f0f0eb;
+}
+
+QFrame[row="true"] {
+    background-color: #ffffff;
+    border: none;
+    border-radius: 6px;
+}
+
+QFrame[row="true"][alternate="true"] {
+    background-color: #fafafa;
+}
+
+QFrame[row="true"][hovered="true"] {
+    background-color: #e8eef8;
+}
+
+QFrame[row="true"][selected="true"] {
+    border: 1px solid #2B5BA8;
+}
+
+QFrame[playlistCard="true"] {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+}
+
+QFrame[playlistCard="true"][hovered="true"] {
+    border-color: #2B5BA8;
+}
+
+QFrame#sideItem {
+    background-color: #f0f0eb;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background: #f0f0eb;
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #e0e0e0;
+    border-radius: 5px;
+    min-height: 22px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #666666;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+    border: none;
+    height: 0;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #f0f0eb;
+    height: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: #e0e0e0;
+    border-radius: 5px;
+    min-width: 22px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #666666;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
+    border: none;
+    width: 0;
+}

@@ -1,264 +1,216 @@
 import os
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
+
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from services.music_service import editar_musica, excluir_musica
 
 
-AZUL = "#2B5BA8"
-AZUL_HOV = "#1E4280"
-BRANCO = "#ffffff"
-FUNDO = "#f0f0eb"
-CARD_BG = "#ffffff"
-TEXTO = "#1a1a1a"
-SUBTEXTO = "#666666"
-CINZA_BD = "#e0e0e0"
+class EditMusicWindow(QDialog):
+    musica_salva = Signal()
+    musica_excluida = Signal()
 
+    def __init__(self, musica, parent=None) -> None:
+        super().__init__(parent)
+        self.musica = musica
+        self.id_musica = musica[0]
+        self.novo_audio = musica[7] or ""
+        self.link_externo = musica[8] or ""
+        self.nova_partitura = musica[9] or ""
 
-def abrir_janela_editar(musica, ao_salvar=None):
-    id_musica = musica[0]
-    novo_audio = musica[7] or ""
-    link_externo = musica[8] or ""
-    nova_partitura = musica[9] or ""
+        self.setWindowTitle("Editar Musica")
+        self.resize(480, 720)
+        self.setMinimumHeight(560)
+        self.setModal(True)
 
-    janela = ctk.CTkToplevel()
-    janela.title("Editar Musica")
-    janela.geometry("480x720")
-    janela.configure(fg_color=FUNDO)
-    janela.resizable(False, True)
-    janela.grab_set()
-    janela.focus_force()
+        self._build_ui()
 
-    header = ctk.CTkFrame(janela, fg_color=BRANCO, corner_radius=0)
-    header.pack(fill="x")
-    ctk.CTkLabel(
-        header,
-        text="Editar Musica",
-        font=ctk.CTkFont("Segoe UI", 16, "bold"),
-        text_color=TEXTO,
-    ).pack(side="left", padx=24, pady=18)
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-    scroll = ctk.CTkScrollableFrame(
-        janela,
-        fg_color=FUNDO,
-        corner_radius=0,
-        scrollbar_button_color=CINZA_BD,
-        scrollbar_button_hover_color=SUBTEXTO,
-    )
-    scroll.pack(fill="both", expand=True)
+        header = QFrame()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(24, 18, 24, 18)
+        title = QLabel("Editar Musica")
+        title.setObjectName("titleLabel")
+        header_layout.addWidget(title)
+        root.addWidget(header)
 
-    def secao(pai, titulo):
-        ctk.CTkLabel(
-            pai,
-            text=titulo,
-            font=ctk.CTkFont("Segoe UI", 10, "bold"),
-            text_color=SUBTEXTO,
-            anchor="w",
-        ).pack(anchor="w", padx=24, pady=(16, 4))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content.setObjectName("scrollContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(0)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
 
-    def campo_entrada(pai, valor="", placeholder=""):
-        entrada = ctk.CTkEntry(
-            pai,
-            placeholder_text=placeholder,
-            fg_color=BRANCO,
-            border_color=CINZA_BD,
-            border_width=1,
-            text_color=TEXTO,
-            placeholder_text_color=SUBTEXTO,
-            font=ctk.CTkFont("Segoe UI", 12),
-            corner_radius=8,
-            height=40,
+        card = QFrame()
+        card.setObjectName("card")
+        self.form_layout = QVBoxLayout(card)
+        self.form_layout.setContentsMargins(24, 16, 24, 24)
+        self.form_layout.setSpacing(8)
+        content_layout.addWidget(card)
+        content_layout.addStretch(1)
+
+        self.nome_entry = self._add_line_edit("NOME  *", "Nome da musica", self.musica[1] or "")
+        self.artista_entry = self._add_line_edit("ARTISTA  *", "Nome do artista", self.musica[2] or "")
+        self.album_entry = self._add_line_edit("ALBUM", "Nome do album", self.musica[3] or "")
+        self.ano_entry = self._add_line_edit("ANO", "Ex: 2024", str(self.musica[4]) if self.musica[4] else "")
+        self._add_separator()
+        self.cifra_text = self._add_text_edit("CIFRA  (acordes)", 110, self.musica[5] or "")
+        self.tablatura_text = self._add_text_edit("TABLATURA  (ASCII)", 130, self.musica[6] or "")
+        self._add_separator()
+        self.audio_label = self._add_file_picker(
+            "AUDIO",
+            os.path.basename(self.novo_audio) if self.novo_audio else "Nenhum arquivo selecionado",
+            "TROCAR AUDIO",
+            self._selecionar_audio,
         )
-        if valor:
-            entrada.insert(0, valor)
-        entrada.pack(fill="x", padx=24, pady=(0, 2))
-        return entrada
-
-    def campo_texto(pai, conteudo="", altura=6):
-        frame = ctk.CTkFrame(
-            pai,
-            fg_color=BRANCO,
-            corner_radius=8,
-            border_width=1,
-            border_color=CINZA_BD,
+        self.partitura_label = self._add_file_picker(
+            "PARTITURA  (PDF)",
+            os.path.basename(self.nova_partitura) if self.nova_partitura else "Nenhum arquivo selecionado",
+            "TROCAR PARTITURA",
+            self._selecionar_partitura,
         )
-        frame.pack(fill="x", padx=24, pady=(0, 2))
-        textbox = ctk.CTkTextbox(
-            frame,
-            height=altura * 20,
-            font=ctk.CTkFont("Courier New", 11),
-            fg_color=BRANCO,
-            text_color=TEXTO,
-            corner_radius=8,
-            wrap="none",
-        )
-        if conteudo:
-            textbox.insert("1.0", conteudo)
-        textbox.pack(fill="both", expand=True, padx=2, pady=2)
-        return textbox
+        self._add_separator()
 
-    def btn_arquivo(pai, icone, texto, cmd):
-        ctk.CTkButton(
-            pai,
-            text=f"  {icone}   {texto}",
-            command=cmd,
-            fg_color=CINZA_BD,
-            hover_color="#d0d0d0",
-            text_color=TEXTO,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            corner_radius=8,
-            height=38,
-            anchor="w",
-        ).pack(fill="x", padx=24, pady=(0, 4))
+        save_button = QPushButton("SALVAR ALTERACOES")
+        save_button.clicked.connect(self._salvar)
+        self.form_layout.addWidget(save_button)
 
-    card = ctk.CTkFrame(
-        scroll,
-        fg_color=CARD_BG,
-        corner_radius=16,
-        border_width=1,
-        border_color=CINZA_BD,
-    )
-    card.pack(fill="x", padx=16, pady=16)
+        delete_button = QPushButton("EXCLUIR MUSICA")
+        delete_button.setObjectName("dangerButton")
+        delete_button.clicked.connect(self._excluir)
+        self.form_layout.addWidget(delete_button)
 
-    secao(card, "NOME  *")
-    entrada_nome = campo_entrada(card, musica[1] or "", "Nome da musica")
+    def _add_section(self, text: str) -> None:
+        label = QLabel(text)
+        label.setObjectName("sectionLabel")
+        self.form_layout.addWidget(label)
 
-    secao(card, "ARTISTA  *")
-    entrada_artista = campo_entrada(card, musica[2] or "", "Nome do artista")
+    def _add_line_edit(self, label: str, placeholder: str, value: str) -> QLineEdit:
+        self._add_section(label)
+        entry = QLineEdit()
+        entry.setPlaceholderText(placeholder)
+        entry.setText(value)
+        self.form_layout.addWidget(entry)
+        return entry
 
-    secao(card, "ALBUM")
-    entrada_album = campo_entrada(card, musica[3] or "", "Nome do album")
+    def _add_text_edit(self, label: str, height: int, value: str) -> QPlainTextEdit:
+        self._add_section(label)
+        text = QPlainTextEdit()
+        text.setObjectName("monoText")
+        text.setFixedHeight(height)
+        text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        text.setPlainText(value)
+        self.form_layout.addWidget(text)
+        return text
 
-    secao(card, "ANO")
-    entrada_ano = campo_entrada(card, str(musica[4]) if musica[4] else "", "Ex: 2024")
+    def _add_separator(self) -> None:
+        line = QFrame()
+        line.setObjectName("separator")
+        self.form_layout.addWidget(line)
 
-    ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(fill="x", padx=24, pady=(16, 0))
+    def _add_file_picker(self, label: str, current_text: str, button_text: str, slot) -> QLabel:
+        self._add_section(label)
+        selected = QLabel(current_text)
+        selected.setObjectName("mutedLabel")
+        self.form_layout.addWidget(selected)
+        button = QPushButton(button_text)
+        button.setObjectName("secondaryButton")
+        button.clicked.connect(slot)
+        self.form_layout.addWidget(button)
+        return selected
 
-    secao(card, "CIFRA  (acordes)")
-    entrada_cifra = campo_texto(card, musica[5] or "", altura=5)
-
-    secao(card, "TABLATURA  (ASCII)")
-    entrada_tablatura = campo_texto(card, musica[6] or "", altura=6)
-
-    ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(fill="x", padx=24, pady=(16, 0))
-
-    secao(card, "AUDIO")
-    label_audio = ctk.CTkLabel(
-        card,
-        text=f">  {os.path.basename(musica[7])}" if musica[7] else "Nenhum arquivo selecionado",
-        font=ctk.CTkFont("Segoe UI", 10),
-        text_color=TEXTO if musica[7] else SUBTEXTO,
-        anchor="w",
-    )
-    label_audio.pack(anchor="w", padx=24, pady=(0, 6))
-
-    def selecionar_audio():
-        nonlocal novo_audio
-        arquivo = filedialog.askopenfilename(
-            parent=janela,
-            title="Selecionar Audio",
-            filetypes=[("Audio files", "*.mp3 *.wav"), ("All files", "*.*")],
+    def _selecionar_audio(self) -> None:
+        arquivo, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar Audio",
+            "",
+            "Audio files (*.mp3 *.wav);;All files (*.*)",
         )
         if arquivo:
-            novo_audio = arquivo
-            label_audio.configure(text=f">  {os.path.basename(arquivo)}", text_color=TEXTO)
-        janela.grab_set()
-        janela.focus_force()
+            self.novo_audio = arquivo
+            self.audio_label.setText(os.path.basename(arquivo))
 
-    btn_arquivo(card, ">", "TROCAR AUDIO", selecionar_audio)
-
-    secao(card, "PARTITURA  (PDF)")
-    label_partitura = ctk.CTkLabel(
-        card,
-        text=f"PDF  {os.path.basename(musica[9])}" if musica[9] else "Nenhum arquivo selecionado",
-        font=ctk.CTkFont("Segoe UI", 10),
-        text_color=TEXTO if musica[9] else SUBTEXTO,
-        anchor="w",
-    )
-    label_partitura.pack(anchor="w", padx=24, pady=(0, 6))
-
-    def selecionar_partitura():
-        nonlocal nova_partitura
-        arquivo = filedialog.askopenfilename(
-            parent=janela,
-            title="Selecionar Partitura",
-            filetypes=[("PDF files", "*.pdf")],
-        )
+    def _selecionar_partitura(self) -> None:
+        arquivo, _ = QFileDialog.getOpenFileName(self, "Selecionar Partitura", "", "PDF files (*.pdf)")
         if arquivo:
-            nova_partitura = arquivo
-            label_partitura.configure(text=f"PDF  {os.path.basename(arquivo)}", text_color=TEXTO)
-        janela.grab_set()
-        janela.focus_force()
+            self.nova_partitura = arquivo
+            self.partitura_label.setText(os.path.basename(arquivo))
 
-    btn_arquivo(card, "PDF", "TROCAR PARTITURA", selecionar_partitura)
-
-    ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(fill="x", padx=24, pady=(12, 0))
-
-    def salvar():
-        nome = entrada_nome.get().strip()
-        artista = entrada_artista.get().strip()
-        album = entrada_album.get().strip()
-        ano_str = entrada_ano.get().strip()
-        cifra = entrada_cifra.get("1.0", "end").strip()
-        tablatura = entrada_tablatura.get("1.0", "end").strip()
+    def _salvar(self) -> None:
+        nome = self.nome_entry.text().strip()
+        artista = self.artista_entry.text().strip()
+        album = self.album_entry.text().strip()
+        ano_str = self.ano_entry.text().strip()
+        cifra = self.cifra_text.toPlainText().strip()
+        tablatura = self.tablatura_text.toPlainText().strip()
 
         if not nome or not artista:
-            messagebox.showwarning("Atencao", "Nome e Artista sao obrigatorios!")
+            QMessageBox.warning(self, "Atencao", "Nome e Artista sao obrigatorios!")
             return
 
         ano = None
         if ano_str:
             if not ano_str.isdigit() or len(ano_str) != 4:
-                messagebox.showwarning("Atencao", "Ano invalido! Use o formato: 2024")
+                QMessageBox.warning(self, "Atencao", "Ano invalido! Use o formato: 2024")
                 return
             ano = int(ano_str)
 
         editar_musica(
-            id_musica,
+            self.id_musica,
             nome,
             artista,
             album,
             ano,
             cifra,
             tablatura,
-            novo_audio,
-            link_externo,
-            nova_partitura,
+            self.novo_audio,
+            self.link_externo,
+            self.nova_partitura,
         )
-        messagebox.showinfo("Sucesso", f'"{nome}" atualizada com sucesso!')
-        if ao_salvar:
-            ao_salvar()
-        janela.destroy()
+        QMessageBox.information(self, "Sucesso", f'"{nome}" atualizada com sucesso!')
+        self.musica_salva.emit()
+        self.accept()
 
-    ctk.CTkButton(
-        card,
-        text="SALVAR ALTERACOES",
-        command=salvar,
-        fg_color=AZUL,
-        hover_color=AZUL_HOV,
-        text_color=BRANCO,
-        font=ctk.CTkFont("Segoe UI", 12, "bold"),
-        corner_radius=10,
-        height=44,
-    ).pack(fill="x", padx=24, pady=(16, 8))
+    def _excluir(self) -> None:
+        nome = self.nome_entry.text().strip() or "esta musica"
+        resposta = QMessageBox.question(
+            self,
+            "Confirmar exclusao",
+            f'Tem certeza que deseja excluir "{nome}"?',
+        )
+        if resposta != QMessageBox.Yes:
+            return
+        excluir_musica(self.id_musica)
+        QMessageBox.information(self, "Excluido", f'"{nome}" foi excluida.')
+        self.musica_excluida.emit()
+        self.accept()
 
-    def excluir():
-        nome = entrada_nome.get().strip() or "esta musica"
-        if messagebox.askyesno("Confirmar exclusao", f'Tem certeza que deseja excluir "{nome}"?'):
-            excluir_musica(id_musica)
-            messagebox.showinfo("Excluido", f'"{nome}" foi excluida.')
-            if ao_salvar:
-                ao_salvar()
-            janela.destroy()
 
-    ctk.CTkButton(
-        card,
-        text="EXCLUIR MUSICA",
-        command=excluir,
-        fg_color="#cccccc",
-        hover_color="#bbbbbb",
-        text_color=TEXTO,
-        font=ctk.CTkFont("Segoe UI", 12, "bold"),
-        corner_radius=10,
-        height=44,
-    ).pack(fill="x", padx=24, pady=(0, 24))
+def abrir_janela_editar(musica, ao_salvar=None, parent=None):
+    dialog = EditMusicWindow(musica, parent)
+    if ao_salvar:
+        dialog.musica_salva.connect(ao_salvar)
+        dialog.musica_excluida.connect(ao_salvar)
+    dialog.exec()
+    return dialog

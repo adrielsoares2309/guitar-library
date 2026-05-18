@@ -1,7 +1,20 @@
 import os
 import webbrowser
-import customtkinter as ctk
-from tkinter import messagebox
+
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QPlainTextEdit,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.playlist.playlist_search_manager import PlaylistSearchManager
 from services.music_service import listar_musicas
@@ -13,404 +26,386 @@ from services.playlist_service import (
 )
 
 
-AZUL = "#2B5BA8"
-AZUL_HOV = "#1E4280"
-BRANCO = "#ffffff"
-FUNDO = "#f0f0eb"
-CARD_BG = "#ffffff"
-TEXTO = "#1a1a1a"
-SUBTEXTO = "#666666"
-CINZA_BD = "#e0e0e0"
-LINHA_ALT = "#fafafa"
+def _refresh_style(widget: QWidget) -> None:
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
 
-class PlaylistWindow(ctk.CTkToplevel):
-    def __init__(self, master, playlist_id, on_playlist_updated=None, on_playlist_deleted=None):
-        super().__init__(master)
-        self.playlist_id = playlist_id
-        self.on_playlist_updated = on_playlist_updated
-        self.on_playlist_deleted = on_playlist_deleted
-        self.playlist = None
-        self.musica_atual = None
-        self.side_panel_visivel = False
-        self.search_manager = PlaylistSearchManager()
-        self.search_after_id = None
-        self.search_text = ""
-        self.music_rows = []
-        self.search_entry = None
-        self.clear_search_button = None
-        self.music_scroll = None
-        self.empty_playlist_label = None
-        self.no_results_label = None
+class _MusicRow(QFrame):
+    clicked = Signal(object)
 
-        self.title("Playlist")
-        self.geometry("860x560")
-        self.configure(fg_color=FUNDO)
-        self.minsize(760, 520)
-        self.grab_set()
-        self.focus_force()
+    def __init__(self, musica, alternate: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.musica = musica
+        self.setProperty("row", True)
+        self.setProperty("alternate", alternate)
+        self.setCursor(Qt.PointingHandCursor)
 
-        header = ctk.CTkFrame(self, fg_color=FUNDO, corner_radius=0, height=72)
-        header.pack(fill="x")
-        header.pack_propagate(False)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(4)
 
-        self.title_label = ctk.CTkLabel(
-            header,
-            text="PLAYLIST",
-            font=ctk.CTkFont("Segoe UI", 18, "bold"),
-            text_color=TEXTO,
-        )
-        self.title_label.pack(side="left", padx=(20, 10), pady=18)
+        name = QLabel(getattr(musica, "nome", "") or "-")
+        font = name.font()
+        font.setBold(True)
+        name.setFont(font)
 
-        self.info_label = ctk.CTkLabel(
-            header,
-            text="",
-            font=ctk.CTkFont("Segoe UI", 11),
-            text_color=SUBTEXTO,
-        )
-        self.info_label.pack(side="left", pady=18)
+        subtitulo = getattr(musica, "artista", "") or "-"
+        album = getattr(musica, "album", "") or ""
+        if album:
+            subtitulo = f"{subtitulo}  -  {album}"
+        details = QLabel(subtitulo)
+        details.setObjectName("mutedLabel")
 
-        ctk.CTkButton(
-            header,
-            text="+",
-            command=self.abrir_seletor_musicas,
-            width=42,
-            height=42,
-            corner_radius=21,
-            fg_color=AZUL,
-            hover_color=AZUL_HOV,
-            text_color=BRANCO,
-            font=ctk.CTkFont("Segoe UI", 24, "bold"),
-        ).pack(side="right", padx=(8, 20), pady=14)
+        layout.addWidget(name)
+        layout.addWidget(details)
 
-        ctk.CTkButton(
-            header,
-            text="✏",
-            command=self.toggle_side_panel,
-            width=42,
-            height=42,
-            corner_radius=21,
-            fg_color=AZUL,
-            hover_color=AZUL_HOV,
-            text_color=BRANCO,
-            font=ctk.CTkFont("Segoe UI", 18, "bold"),
-        ).pack(side="right", pady=14)
+    def set_selected(self, selected: bool) -> None:
+        self.setProperty("selected", selected)
+        _refresh_style(self)
 
-        self.main_area = ctk.CTkFrame(self, fg_color=FUNDO, corner_radius=0)
-        self.main_area.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+    def set_alternate(self, alternate: bool) -> None:
+        self.setProperty("alternate", alternate)
+        _refresh_style(self)
 
-        self.content_area = ctk.CTkFrame(self.main_area, fg_color=FUNDO, corner_radius=0)
-        self.content_area.pack(side="left", fill="both", expand=True)
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.musica)
+        super().mousePressEvent(event)
 
-        self.list_area = ctk.CTkFrame(self.content_area, fg_color=FUNDO, corner_radius=0)
-        self.list_area.pack(fill="both", expand=True)
+    def enterEvent(self, event) -> None:
+        if not self.property("selected"):
+            self.setProperty("hovered", True)
+            _refresh_style(self)
+        super().enterEvent(event)
 
-        self.detail_area = ctk.CTkFrame(self.content_area, fg_color=FUNDO, corner_radius=0)
-        self.detail_area.pack(fill="x")
+    def leaveEvent(self, event) -> None:
+        self.setProperty("hovered", False)
+        _refresh_style(self)
+        super().leaveEvent(event)
 
-        self.side_panel = ctk.CTkFrame(
-            self.main_area,
-            width=240,
-            fg_color=BRANCO,
-            corner_radius=16,
-            border_width=1,
-            border_color=CINZA_BD,
-        )
 
-        self.refresh()
+class _TupleMusicRow(QFrame):
+    add_requested = Signal(int)
 
-    def refresh(self):
-        self.playlist = get_playlist(self.playlist_id)
-        if not self.playlist:
-            messagebox.showwarning("Atencao", "A playlist selecionada nao existe mais.")
-            self.destroy()
+    def __init__(self, musica, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.musica = musica
+        self.setObjectName("card")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
+
+        texts = QVBoxLayout()
+        name = QLabel(musica[1] or "-")
+        font = name.font()
+        font.setBold(True)
+        name.setFont(font)
+        artist = QLabel(musica[2] or "-")
+        artist.setObjectName("mutedLabel")
+        texts.addWidget(name)
+        texts.addWidget(artist)
+
+        button = QPushButton("Adicionar")
+        button.clicked.connect(lambda: self.add_requested.emit(musica[0]))
+        layout.addLayout(texts, 1)
+        layout.addWidget(button)
+
+
+class AddToPlaylistDialog(QDialog):
+    music_added = Signal(int)
+
+    def __init__(self, playlist, parent=None) -> None:
+        super().__init__(parent)
+        self.playlist = playlist
+        self.setWindowTitle("Adicionar musica")
+        self.resize(420, 480)
+        self.setModal(True)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(10)
+
+        title = QLabel("Adicionar musica a playlist")
+        title.setObjectName("titleLabel")
+        root.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content.setObjectName("scrollContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+        musicas = listar_musicas()
+        ids_existentes = {musica.id for musica in playlist.musicas}
+        disponiveis = [musica for musica in musicas if musica[0] not in ids_existentes]
+
+        if not disponiveis:
+            empty = QLabel("Todas as musicas ja estao nesta playlist.")
+            empty.setObjectName("emptyLabel")
+            empty.setAlignment(Qt.AlignCenter)
+            content_layout.addWidget(empty)
+            content_layout.addStretch(1)
             return
 
-        self.title_label.configure(text=self.playlist.nome.upper())
-        self.info_label.configure(text=f"{len(self.playlist.musicas)} musica(s)")
+        for musica in disponiveis:
+            row = _TupleMusicRow(musica)
+            row.add_requested.connect(self._add)
+            content_layout.addWidget(row)
+        content_layout.addStretch(1)
+
+    def _add(self, music_id: int) -> None:
+        self.music_added.emit(music_id)
+        self.accept()
+
+
+class TextViewerDialog(QDialog):
+    def __init__(self, titulo: str, conteudo: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(titulo)
+        self.resize(500, 440)
+        self.setModal(True)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(10)
+
+        title = QLabel(titulo.upper())
+        title.setObjectName("titleLabel")
+        root.addWidget(title)
+
+        text = QPlainTextEdit()
+        text.setObjectName("viewerText")
+        text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        text.setPlainText(conteudo or "")
+        text.setReadOnly(True)
+        root.addWidget(text, 1)
+
+
+class PlaylistWindow(QDialog):
+    playlist_updated = Signal()
+    playlist_deleted = Signal()
+
+    def __init__(self, parent=None, playlist_id=None, on_playlist_updated=None, on_playlist_deleted=None, master=None):
+        super().__init__(parent or master)
+        self.playlist_id = playlist_id
+        self.playlist = None
+        self.musica_atual = None
+        self.search_manager = PlaylistSearchManager()
+        self.music_rows: list[_MusicRow] = []
+        self.search_text = ""
+        self.side_panel_visible = False
+
+        if on_playlist_updated:
+            self.playlist_updated.connect(on_playlist_updated)
+        if on_playlist_deleted:
+            self.playlist_deleted.connect(on_playlist_deleted)
+
+        self.setWindowTitle("Playlist")
+        self.resize(860, 560)
+        self.setMinimumSize(760, 520)
+        self.setModal(True)
+
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(90)
+        self.search_timer.timeout.connect(self.apply_search)
+
+        self._build_ui()
+        self.refresh()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 16)
+        root.setSpacing(10)
+
+        header = QFrame()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
+        self.title_label = QLabel("PLAYLIST")
+        self.title_label.setObjectName("titleLabel")
+        self.info_label = QLabel("")
+        self.info_label.setObjectName("mutedLabel")
+        edit_button = QPushButton("Editar")
+        edit_button.clicked.connect(self.toggle_side_panel)
+        add_button = QPushButton("+")
+        add_button.setObjectName("iconButton")
+        add_button.clicked.connect(self.abrir_seletor_musicas)
+        header_layout.addWidget(self.title_label)
+        header_layout.addWidget(self.info_label)
+        header_layout.addStretch(1)
+        header_layout.addWidget(edit_button)
+        header_layout.addWidget(add_button)
+        root.addWidget(header)
+
+        main_layout = QHBoxLayout()
+        main_layout.setSpacing(12)
+        root.addLayout(main_layout, 1)
+
+        content = QWidget()
+        content.setObjectName("contentArea")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
+        main_layout.addWidget(content, 1)
+
+        search_box = QFrame()
+        search_box.setObjectName("searchBox")
+        search_layout = QHBoxLayout(search_box)
+        search_layout.setContentsMargins(12, 2, 8, 2)
+        self.search_entry = QLineEdit()
+        self.search_entry.setObjectName("searchInput")
+        self.search_entry.setPlaceholderText("Buscar nesta playlist...")
+        self.search_entry.textChanged.connect(self.schedule_search)
+        self.search_entry.returnPressed.connect(self.apply_search)
+        self.clear_search_button = QPushButton("X")
+        self.clear_search_button.setObjectName("secondaryButton")
+        self.clear_search_button.clicked.connect(self.clear_search)
+        search_layout.addWidget(self.search_entry, 1)
+        search_layout.addWidget(self.clear_search_button)
+        content_layout.addWidget(search_box)
+
+        self.music_scroll = QScrollArea()
+        self.music_scroll.setWidgetResizable(True)
+        self.music_content = QWidget()
+        self.music_content.setObjectName("scrollContent")
+        self.music_layout = QVBoxLayout(self.music_content)
+        self.music_layout.setContentsMargins(0, 0, 0, 0)
+        self.music_layout.setSpacing(8)
+        self.music_scroll.setWidget(self.music_content)
+        content_layout.addWidget(self.music_scroll, 1)
+
+        self.detail_area = QWidget()
+        detail_layout = QVBoxLayout(self.detail_area)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        self.detail_layout = detail_layout
+        content_layout.addWidget(self.detail_area)
+
+        self.side_panel = QFrame()
+        self.side_panel.setObjectName("panel")
+        self.side_panel.setFixedWidth(250)
+        self.side_layout = QVBoxLayout(self.side_panel)
+        self.side_layout.setContentsMargins(14, 14, 14, 14)
+        self.side_layout.setSpacing(8)
+        self.side_panel.hide()
+        main_layout.addWidget(self.side_panel)
+
+    def refresh(self) -> None:
+        self.playlist = get_playlist(self.playlist_id)
+        if not self.playlist:
+            QMessageBox.warning(self, "Atencao", "A playlist selecionada nao existe mais.")
+            self.reject()
+            return
+
+        self.title_label.setText((self.playlist.nome or "PLAYLIST").upper())
+        self.info_label.setText(f"{len(self.playlist.musicas)} musica(s)")
         self.search_manager.set_musicas(self.playlist.musicas)
-        if not self.playlist.musicas:
-            self.search_text = ""
-        self.render_music_list()
-        self.render_side_panel()
 
         if self.musica_atual:
-            musica_id = self.musica_atual.id
-            self.musica_atual = next((m for m in self.playlist.musicas if m.id == musica_id), None)
+            current_id = self.musica_atual.id
+            self.musica_atual = next((m for m in self.playlist.musicas if m.id == current_id), None)
 
+        self.render_music_list()
+        self.render_side_panel()
         if self.musica_atual:
             self.render_music_detail()
         else:
             self.clear_detail()
+        self.playlist_updated.emit()
 
-        if self.on_playlist_updated:
-            self.on_playlist_updated()
+    def _clear_layout(self, layout: QVBoxLayout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
-    def render_music_list(self):
-        for widget in self.list_area.winfo_children():
-            widget.destroy()
-
-        frame_busca = ctk.CTkFrame(
-            self.list_area,
-            fg_color=BRANCO,
-            corner_radius=16,
-            border_width=1,
-            border_color=CINZA_BD,
-        )
-        frame_busca.pack(fill="x", padx=8, pady=(0, 8))
-
-        self.search_entry = ctk.CTkEntry(
-            frame_busca,
-            placeholder_text="Buscar nesta playlist...",
-            border_width=0,
-            fg_color=BRANCO,
-            text_color=TEXTO,
-            placeholder_text_color=SUBTEXTO,
-            font=ctk.CTkFont("Segoe UI", 12),
-            corner_radius=16,
-            height=38,
-        )
-        self.search_entry.pack(side="left", fill="x", expand=True, padx=(14, 4), pady=2)
-        self.search_entry.bind("<KeyRelease>", self.schedule_search)
-        self.search_entry.bind("<Return>", self.apply_search)
-
-        self.clear_search_button = ctk.CTkButton(
-            frame_busca,
-            text="X",
-            command=self.clear_search,
-            width=32,
-            height=32,
-            corner_radius=10,
-            fg_color=FUNDO,
-            hover_color=CINZA_BD,
-            text_color=SUBTEXTO,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-        )
-        self.clear_search_button.pack(side="right", padx=(4, 8), pady=5)
-
-        if self.search_text:
-            self.search_entry.insert(0, self.search_text)
-
-        self.music_scroll = ctk.CTkScrollableFrame(
-            self.list_area,
-            fg_color=FUNDO,
-            corner_radius=0,
-            scrollbar_button_color=CINZA_BD,
-            scrollbar_button_hover_color=SUBTEXTO,
-        )
-        self.music_scroll.pack(fill="both", expand=True)
-
-        self.empty_playlist_label = ctk.CTkLabel(
-            self.music_scroll,
-            text="Nenhuma musica na playlist ainda.\nUse o botao + para adicionar.",
-            font=ctk.CTkFont("Segoe UI", 12),
-            text_color=SUBTEXTO,
-            justify="center",
-        )
-
-        self.no_results_label = ctk.CTkLabel(
-            self.music_scroll,
-            text="No songs found",
-            font=ctk.CTkFont("Segoe UI", 12),
-            text_color=SUBTEXTO,
-            justify="center",
-        )
-
+    def render_music_list(self) -> None:
+        self._clear_layout(self.music_layout)
         self.music_rows = []
 
         if not self.playlist.musicas:
-            self.search_entry.configure(state="disabled")
-            self.clear_search_button.configure(state="disabled")
-            self.empty_playlist_label.pack(pady=40)
+            self.search_entry.setEnabled(False)
+            self.clear_search_button.setEnabled(False)
+            empty = QLabel("Nenhuma musica na playlist ainda.\nUse o botao + para adicionar.")
+            empty.setObjectName("emptyLabel")
+            empty.setAlignment(Qt.AlignCenter)
+            self.music_layout.addWidget(empty)
+            self.music_layout.addStretch(1)
             return
 
+        self.search_entry.setEnabled(True)
         for index, musica in enumerate(self.playlist.musicas):
-            cor_linha = CARD_BG if index % 2 == 0 else LINHA_ALT
-            selecionada = self.musica_atual and self.musica_atual.id == musica.id
-            row_state = {
-                "musica": musica,
-                "base_color": cor_linha,
-                "visible": True,
-            }
-            linha = ctk.CTkFrame(
-                self.music_scroll,
-                fg_color=cor_linha,
-                corner_radius=10,
-                border_width=1 if selecionada else 0,
-                border_color=AZUL,
-                cursor="hand2",
-            )
-            linha.pack(fill="x", padx=8, pady=4)
-
-            ctk.CTkLabel(
-                linha,
-                text=musica.nome,
-                font=ctk.CTkFont("Segoe UI", 12, "bold"),
-                text_color=TEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(10, 0))
-
-            subtitulo = musica.artista or "-"
-            if musica.album:
-                subtitulo = f"{subtitulo}  -  {musica.album}"
-
-            ctk.CTkLabel(
-                linha,
-                text=subtitulo,
-                font=ctk.CTkFont("Segoe UI", 10),
-                text_color=SUBTEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=14, pady=(2, 10))
-
-            def selecionar(event=None, item=musica):
-                self.musica_atual = item
-                self.update_music_row_styles()
-                self.render_music_detail()
-
-            def on_enter(event, frame=linha, item=musica):
-                if not self.musica_atual or self.musica_atual.id != item.id:
-                    frame.configure(fg_color="#e8eef8")
-
-            def on_leave(event, frame=linha, state=row_state, item=musica):
-                frame.configure(
-                    fg_color=state["base_color"],
-                    border_width=1 if self.musica_atual and self.musica_atual.id == item.id else 0,
-                )
-
-            linha.bind("<Button-1>", selecionar)
-            linha.bind("<Enter>", on_enter)
-            linha.bind("<Leave>", on_leave)
-            for child in linha.winfo_children():
-                child.bind("<Button-1>", selecionar)
-                child.bind("<Enter>", on_enter)
-                child.bind("<Leave>", on_leave)
-
-            row_state["frame"] = linha
-            self.music_rows.append(row_state)
-
+            row = _MusicRow(musica, alternate=bool(index % 2))
+            row.clicked.connect(self._select_music)
+            self.music_rows.append(row)
+            self.music_layout.addWidget(row)
+        self.no_results_label = QLabel("No songs found")
+        self.no_results_label.setObjectName("emptyLabel")
+        self.no_results_label.setAlignment(Qt.AlignCenter)
+        self.music_layout.addWidget(self.no_results_label)
+        self.music_layout.addStretch(1)
         self.apply_search()
 
-    def schedule_search(self, event=None):
-        if self.search_after_id:
-            self.after_cancel(self.search_after_id)
-        self.search_after_id = self.after(90, self.apply_search)
+    def schedule_search(self) -> None:
+        self.search_timer.start()
 
-    def clear_search(self):
-        if not self.search_entry:
-            return
-        self.search_entry.delete(0, "end")
-        self.search_text = ""
+    def clear_search(self) -> None:
+        self.search_entry.clear()
         self.apply_search()
 
-    def apply_search(self, event=None):
-        if self.search_after_id:
-            self.after_cancel(self.search_after_id)
-            self.search_after_id = None
-
-        if not self.search_entry:
-            return
-
-        self.search_text = self.search_entry.get().strip()
+    def apply_search(self) -> None:
+        self.search_timer.stop()
+        self.search_text = self.search_entry.text().strip()
         resultados = self.search_manager.filter(self.search_text)
         ids_visiveis = {musica.id for musica in resultados}
-        encontrou_resultados = False
-        indice_visivel = 0
+        visible_count = 0
 
-        for item in self.music_rows:
-            frame = item["frame"]
-            visivel = item["musica"].id in ids_visiveis
+        for row in self.music_rows:
+            visible = row.musica.id in ids_visiveis
+            row.setVisible(visible)
+            if visible:
+                row.set_alternate(bool(visible_count % 2))
+                visible_count += 1
+            row.set_selected(bool(self.musica_atual and self.musica_atual.id == row.musica.id))
 
-            if visivel:
-                nova_cor = CARD_BG if indice_visivel % 2 == 0 else LINHA_ALT
-                item["base_color"] = nova_cor
-                frame.configure(fg_color=nova_cor)
-                if not item["visible"]:
-                    frame.pack(fill="x", padx=8, pady=4)
-                item["visible"] = True
-                indice_visivel += 1
-                encontrou_resultados = True
-            else:
-                if item["visible"]:
-                    frame.pack_forget()
-                item["visible"] = False
+        self.clear_search_button.setEnabled(bool(self.search_text))
+        if hasattr(self, "no_results_label"):
+            self.no_results_label.setVisible(bool(self.playlist.musicas and not visible_count))
 
-        self.update_music_row_styles()
-        self.update_search_controls()
-
-        if self.empty_playlist_label:
-            self.empty_playlist_label.pack_forget()
-
-        if self.no_results_label:
-            if self.playlist.musicas and not encontrou_resultados:
-                self.no_results_label.pack(pady=40)
-            else:
-                self.no_results_label.pack_forget()
-
-        musica_visivel = (
-            self.musica_atual is not None
-            and self.musica_atual.id in ids_visiveis
-        )
-        if musica_visivel:
-            if not self.detail_area.winfo_children():
-                self.render_music_detail()
-        else:
+        if self.musica_atual and self.musica_atual.id not in ids_visiveis:
             self.clear_detail()
 
-    def update_search_controls(self):
-        if not self.clear_search_button:
-            return
+    def _select_music(self, musica) -> None:
+        self.musica_atual = musica
+        for row in self.music_rows:
+            row.set_selected(row.musica.id == musica.id)
+        self.render_music_detail()
 
-        possui_texto = bool(self.search_text)
-        self.clear_search_button.configure(
-            state="normal" if possui_texto else "disabled",
-            text_color=TEXTO if possui_texto else SUBTEXTO,
-        )
-
-    def update_music_row_styles(self):
-        for item in self.music_rows:
-            if not item["visible"]:
-                continue
-
-            musica = item["musica"]
-            frame = item["frame"]
-            selecionada = self.musica_atual and self.musica_atual.id == musica.id
-            frame.configure(
-                fg_color=item["base_color"],
-                border_width=1 if selecionada else 0,
-            )
-
-    def render_music_detail(self):
+    def render_music_detail(self) -> None:
         self.clear_detail()
         if not self.musica_atual:
             return
 
-        card = ctk.CTkFrame(
-            self.detail_area,
-            fg_color=CARD_BG,
-            corner_radius=16,
-            border_width=1,
-            border_color=CINZA_BD,
-        )
-        card.pack(fill="x", padx=8, pady=(8, 0))
+        card = QFrame()
+        card.setObjectName("card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 16, 20, 18)
+        layout.setSpacing(8)
 
-        cab = ctk.CTkFrame(card, fg_color="transparent")
-        cab.pack(fill="x", padx=20, pady=(18, 8))
-
-        ctk.CTkLabel(
-            cab,
-            text=(self.musica_atual.nome or "").upper(),
-            font=ctk.CTkFont("Segoe UI", 16, "bold"),
-            text_color=TEXTO,
-            anchor="w",
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            cab,
-            text=self.musica_atual.artista or "-",
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            text_color=SUBTEXTO,
-            anchor="w",
-        ).pack(anchor="w", pady=(2, 0))
+        title = QLabel((self.musica_atual.nome or "").upper())
+        title.setObjectName("titleLabel")
+        artist = QLabel(self.musica_atual.artista or "-")
+        artist.setObjectName("mutedLabel")
+        layout.addWidget(title)
+        layout.addWidget(artist)
 
         partes = []
         if self.musica_atual.album:
@@ -418,323 +413,147 @@ class PlaylistWindow(ctk.CTkToplevel):
         if self.musica_atual.ano:
             partes.append(str(self.musica_atual.ano))
         if partes:
-            ctk.CTkLabel(
-                cab,
-                text="  .  ".join(partes),
-                font=ctk.CTkFont("Segoe UI", 10),
-                text_color=SUBTEXTO,
-                anchor="w",
-            ).pack(anchor="w", pady=(2, 0))
+            meta = QLabel("  .  ".join(partes))
+            meta.setObjectName("mutedLabel")
+            layout.addWidget(meta)
 
-        ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(fill="x", padx=20, pady=(8, 8))
+        line = QFrame()
+        line.setObjectName("separator")
+        layout.addWidget(line)
 
-        botoes = ctk.CTkFrame(card, fg_color="transparent")
-        botoes.pack(fill="x", padx=20, pady=(0, 18))
+        for text, slot, active in [
+            ("CIFRA", lambda: self.abrir_viewer("Cifra", self.musica_atual.cifra), bool(self.musica_atual.cifra)),
+            ("TABLATURA", lambda: self.abrir_viewer("Tablatura", self.musica_atual.tablatura), bool(self.musica_atual.tablatura)),
+            ("PARTITURA", self.visualizar_partitura, bool(self.musica_atual.caminho_partitura)),
+            ("AUDIO", self.tocar_audio, bool(self.musica_atual.caminho_audio)),
+            ("LINK EXTERNO", self.abrir_link_externo, bool(self.musica_atual.link_externo)),
+        ]:
+            button = QPushButton(text)
+            button.setEnabled(active)
+            button.clicked.connect(slot)
+            layout.addWidget(button)
 
-        self._create_action_button(
-            botoes,
-            "CIFRA",
-            lambda: self.abrir_viewer("Cifra", self.musica_atual.cifra),
-            ativo=bool(self.musica_atual.cifra),
-        )
-        self._create_action_button(
-            botoes,
-            "TABLATURA",
-            lambda: self.abrir_viewer("Tablatura", self.musica_atual.tablatura),
-            ativo=bool(self.musica_atual.tablatura),
-        )
-        self._create_action_button(
-            botoes,
-            "PARTITURA",
-            self.visualizar_partitura,
-            ativo=bool(self.musica_atual.caminho_partitura),
-        )
-        self._create_action_button(
-            botoes,
-            "AUDIO",
-            self.tocar_audio,
-            ativo=bool(self.musica_atual.caminho_audio),
-        )
-        self._create_action_button(
-            botoes,
-            "LINK EXTERNO",
-            self.abrir_link_externo,
-            ativo=bool(self.musica_atual.link_externo),
-        )
+        self.detail_layout.addWidget(card)
 
-    def clear_detail(self):
-        for widget in self.detail_area.winfo_children():
-            widget.destroy()
+    def clear_detail(self) -> None:
+        self._clear_layout(self.detail_layout)
 
-    def _create_action_button(self, master, texto, command, ativo=True):
-        cor = AZUL if ativo else "#cccccc"
-        hover = AZUL_HOV if ativo else "#bbbbbb"
-        ctk.CTkButton(
-            master,
-            text=texto,
-            command=command if ativo else (lambda: None),
-            fg_color=cor,
-            hover_color=hover,
-            text_color=BRANCO,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            corner_radius=10,
-            height=40,
-        ).pack(fill="x", pady=4)
+    def toggle_side_panel(self) -> None:
+        self.side_panel_visible = not self.side_panel_visible
+        self.side_panel.setVisible(self.side_panel_visible)
 
-    def toggle_side_panel(self):
-        self.side_panel_visivel = not self.side_panel_visivel
-        if self.side_panel_visivel:
-            self.side_panel.pack(side="right", fill="y", padx=(12, 0))
-        else:
-            self.side_panel.pack_forget()
+    def render_side_panel(self) -> None:
+        self._clear_layout(self.side_layout)
+        title = QLabel("EDITAR PLAYLIST")
+        title.setObjectName("titleLabel")
+        subtitle = QLabel("Remover musicas desta playlist")
+        subtitle.setObjectName("mutedLabel")
+        self.side_layout.addWidget(title)
+        self.side_layout.addWidget(subtitle)
 
-    def render_side_panel(self):
-        for widget in self.side_panel.winfo_children():
-            widget.destroy()
-
-        ctk.CTkLabel(
-            self.side_panel,
-            text="EDITAR PLAYLIST",
-            font=ctk.CTkFont("Segoe UI", 13, "bold"),
-            text_color=TEXTO,
-        ).pack(anchor="w", padx=16, pady=(16, 10))
-
-        ctk.CTkLabel(
-            self.side_panel,
-            text="Remover musicas desta playlist",
-            font=ctk.CTkFont("Segoe UI", 10),
-            text_color=SUBTEXTO,
-        ).pack(anchor="w", padx=16)
-
-        scroll = ctk.CTkScrollableFrame(
-            self.side_panel,
-            fg_color=BRANCO,
-            corner_radius=0,
-            scrollbar_button_color=CINZA_BD,
-            scrollbar_button_hover_color=SUBTEXTO,
-        )
-        scroll.pack(fill="both", expand=True, padx=12, pady=(12, 12))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content.setObjectName("scrollContent")
+        list_layout = QVBoxLayout(content)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.setSpacing(8)
+        scroll.setWidget(content)
+        self.side_layout.addWidget(scroll, 1)
 
         if not self.playlist.musicas:
-            ctk.CTkLabel(
-                scroll,
-                text="Sem musicas para remover.",
-                font=ctk.CTkFont("Segoe UI", 11),
-                text_color=SUBTEXTO,
-            ).pack(pady=16)
+            empty = QLabel("Sem musicas para remover.")
+            empty.setObjectName("emptyLabel")
+            list_layout.addWidget(empty)
         else:
             for musica in self.playlist.musicas:
-                item = ctk.CTkFrame(
-                    scroll,
-                    fg_color=FUNDO,
-                    corner_radius=10,
-                    border_width=1,
-                    border_color=CINZA_BD,
-                )
-                item.pack(fill="x", pady=4)
+                item = QFrame()
+                item.setObjectName("sideItem")
+                row = QHBoxLayout(item)
+                row.setContentsMargins(10, 8, 10, 8)
+                texts = QVBoxLayout()
+                name = QLabel(musica.nome)
+                font = name.font()
+                font.setBold(True)
+                name.setFont(font)
+                artist = QLabel(musica.artista or "-")
+                artist.setObjectName("mutedLabel")
+                texts.addWidget(name)
+                texts.addWidget(artist)
+                remove = QPushButton("X")
+                remove.setObjectName("iconButton")
+                remove.clicked.connect(lambda checked=False, music_id=musica.id: self.remover_musica(music_id))
+                row.addLayout(texts, 1)
+                row.addWidget(remove)
+                list_layout.addWidget(item)
+        list_layout.addStretch(1)
 
-                ctk.CTkLabel(
-                    item,
-                    text=musica.nome,
-                    font=ctk.CTkFont("Segoe UI", 11, "bold"),
-                    text_color=TEXTO,
-                    anchor="w",
-                ).pack(fill="x", padx=10, pady=(8, 0))
+        delete_button = QPushButton("EXCLUIR PLAYLIST")
+        delete_button.setObjectName("dangerButton")
+        delete_button.clicked.connect(self.excluir_playlist)
+        self.side_layout.addWidget(delete_button)
 
-                ctk.CTkLabel(
-                    item,
-                    text=musica.artista or "-",
-                    font=ctk.CTkFont("Segoe UI", 10),
-                    text_color=SUBTEXTO,
-                    anchor="w",
-                ).pack(fill="x", padx=10, pady=(2, 8))
+    def abrir_seletor_musicas(self) -> None:
+        dialog = AddToPlaylistDialog(self.playlist, self)
+        dialog.music_added.connect(lambda music_id: self.adicionar_musica(music_id))
+        dialog.exec()
 
-                ctk.CTkButton(
-                    item,
-                    text="X",
-                    width=28,
-                    height=28,
-                    corner_radius=8,
-                    fg_color=AZUL,
-                    hover_color=AZUL_HOV,
-                    command=lambda music_id=musica.id: self.remover_musica(music_id),
-                ).place(relx=1.0, x=-10, y=10, anchor="ne")
-
-        ctk.CTkButton(
-            self.side_panel,
-            text="EXCLUIR PLAYLIST",
-            command=self.excluir_playlist,
-            fg_color="#cccccc",
-            hover_color="#bbbbbb",
-            text_color=TEXTO,
-            font=ctk.CTkFont("Segoe UI", 12, "bold"),
-            corner_radius=10,
-            height=42,
-        ).pack(fill="x", padx=12, pady=(0, 12))
-
-    def abrir_seletor_musicas(self):
-        janela = ctk.CTkToplevel(self)
-        janela.title("Adicionar musica")
-        janela.geometry("420x480")
-        janela.configure(fg_color=FUNDO)
-        janela.grab_set()
-        janela.focus_force()
-
-        ctk.CTkLabel(
-            janela,
-            text="Adicionar musica a playlist",
-            font=ctk.CTkFont("Segoe UI", 15, "bold"),
-            text_color=TEXTO,
-        ).pack(anchor="w", padx=18, pady=(18, 8))
-
-        scroll = ctk.CTkScrollableFrame(
-            janela,
-            fg_color=FUNDO,
-            corner_radius=0,
-            scrollbar_button_color=CINZA_BD,
-            scrollbar_button_hover_color=SUBTEXTO,
-        )
-        scroll.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-
-        musicas = listar_musicas()
-        ids_existentes = {musica.id for musica in self.playlist.musicas}
-        musicas_disponiveis = [musica for musica in musicas if musica[0] not in ids_existentes]
-
-        if not musicas_disponiveis:
-            ctk.CTkLabel(
-                scroll,
-                text="Todas as musicas ja estao nesta playlist.",
-                font=ctk.CTkFont("Segoe UI", 11),
-                text_color=SUBTEXTO,
-            ).pack(pady=30)
-            return
-
-        for musica in musicas_disponiveis:
-            item = ctk.CTkFrame(
-                scroll,
-                fg_color=BRANCO,
-                corner_radius=10,
-                border_width=1,
-                border_color=CINZA_BD,
-            )
-            item.pack(fill="x", padx=4, pady=4)
-
-            ctk.CTkLabel(
-                item,
-                text=musica[1],
-                font=ctk.CTkFont("Segoe UI", 11, "bold"),
-                text_color=TEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=12, pady=(10, 0))
-
-            ctk.CTkLabel(
-                item,
-                text=musica[2] or "-",
-                font=ctk.CTkFont("Segoe UI", 10),
-                text_color=SUBTEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=12, pady=(2, 10))
-
-            ctk.CTkButton(
-                item,
-                text="Adicionar",
-                command=lambda music_id=musica[0]: self.adicionar_musica(music_id, janela),
-                fg_color=AZUL,
-                hover_color=AZUL_HOV,
-                text_color=BRANCO,
-                corner_radius=8,
-                width=84,
-                height=30,
-            ).place(relx=1.0, x=-12, rely=0.5, anchor="e")
-
-    def adicionar_musica(self, music_id, janela):
+    def adicionar_musica(self, music_id: int) -> None:
         try:
             add_music_to_playlist(self.playlist_id, music_id)
         except ValueError as exc:
-            messagebox.showwarning("Atencao", str(exc))
+            QMessageBox.warning(self, "Atencao", str(exc))
             return
-
-        janela.destroy()
         self.refresh()
 
-    def remover_musica(self, music_id):
+    def remover_musica(self, music_id: int) -> None:
         remove_music_from_playlist(self.playlist_id, music_id)
         if self.musica_atual and self.musica_atual.id == music_id:
             self.musica_atual = None
         self.refresh()
 
-    def excluir_playlist(self):
+    def excluir_playlist(self) -> None:
         nome = self.playlist.nome if self.playlist else "esta playlist"
-        if not messagebox.askyesno("Confirmar exclusao", f'Tem certeza que deseja excluir "{nome}"?'):
+        resposta = QMessageBox.question(self, "Confirmar exclusao", f'Tem certeza que deseja excluir "{nome}"?')
+        if resposta != QMessageBox.Yes:
             return
-
         delete_playlist(self.playlist_id)
-        if self.on_playlist_deleted:
-            self.on_playlist_deleted()
-        self.destroy()
+        self.playlist_deleted.emit()
+        self.accept()
 
-    def abrir_viewer(self, titulo, conteudo):
-        viewer = ctk.CTkToplevel(self)
-        viewer.title(titulo)
-        viewer.geometry("500x440")
-        viewer.configure(fg_color=FUNDO)
-        viewer.grab_set()
-        viewer.focus_force()
+    def abrir_viewer(self, titulo: str, conteudo: str) -> None:
+        TextViewerDialog(titulo, conteudo or "", self).exec()
 
-        ctk.CTkLabel(
-            viewer,
-            text=titulo.upper(),
-            font=ctk.CTkFont("Segoe UI", 14, "bold"),
-            text_color=TEXTO,
-        ).pack(pady=(20, 10))
-
-        frame_txt = ctk.CTkFrame(viewer, fg_color=BRANCO, corner_radius=12, border_width=1, border_color=CINZA_BD)
-        frame_txt.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-
-        txt = ctk.CTkTextbox(
-            frame_txt,
-            font=ctk.CTkFont("Courier New", 12),
-            fg_color=BRANCO,
-            text_color=TEXTO,
-            wrap="none",
-            corner_radius=12,
-        )
-        txt.pack(fill="both", expand=True, padx=4, pady=4)
-        txt.insert("1.0", conteudo or "")
-        txt.configure(state="disabled")
-
-    def tocar_audio(self):
+    def tocar_audio(self) -> None:
         caminho_audio = self.musica_atual.caminho_audio if self.musica_atual else ""
         if not caminho_audio:
             return
         if os.path.exists(caminho_audio):
             os.startfile(caminho_audio)
         else:
-            messagebox.showwarning("Aviso", f"Arquivo de audio nao encontrado:\n{caminho_audio}")
+            QMessageBox.warning(self, "Aviso", f"Arquivo de audio nao encontrado:\n{caminho_audio}")
 
-    def abrir_link_externo(self):
+    def abrir_link_externo(self) -> None:
         link_externo = self.musica_atual.link_externo if self.musica_atual else ""
-        if not link_externo:
-            return
-        try:
+        if link_externo:
             webbrowser.open(link_externo)
-        except Exception:
-            messagebox.showwarning("Aviso", f"Nao foi possivel abrir o link:\n{link_externo}")
 
-    def visualizar_partitura(self):
+    def visualizar_partitura(self) -> None:
         partitura = self.musica_atual.caminho_partitura if self.musica_atual else ""
         if not partitura:
             return
         if os.path.exists(partitura):
             os.startfile(partitura)
         else:
-            messagebox.showwarning("Aviso", f"Arquivo de partitura nao encontrado:\n{partitura}")
+            QMessageBox.warning(self, "Aviso", f"Arquivo de partitura nao encontrado:\n{partitura}")
 
 
 def abrir_janela_playlist(master, playlist_id, on_playlist_updated=None, on_playlist_deleted=None):
-    return PlaylistWindow(
-        master=master,
+    dialog = PlaylistWindow(
+        parent=master,
         playlist_id=playlist_id,
         on_playlist_updated=on_playlist_updated,
         on_playlist_deleted=on_playlist_deleted,
     )
+    dialog.exec()
+    return dialog

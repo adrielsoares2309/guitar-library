@@ -1,119 +1,133 @@
-import customtkinter as ctk
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 
-AZUL = "#2B5BA8"
-AZUL_HOV = "#1E4280"
-BRANCO = "#ffffff"
-FUNDO = "#f0f0eb"
-TEXTO = "#1a1a1a"
-SUBTEXTO = "#666666"
-CINZA_BD = "#e0e0e0"
+def _refresh_style(widget: QWidget) -> None:
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
 
-class PlaylistWidget(ctk.CTkFrame):
-    def __init__(self, master, on_open_playlist, on_create_playlist):
-        super().__init__(master, fg_color=FUNDO, corner_radius=0)
-        self.on_open_playlist = on_open_playlist
-        self.on_create_playlist = on_create_playlist
+class _ClickableFrame(QFrame):
+    clicked = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def enterEvent(self, event) -> None:
+        self.setProperty("hovered", True)
+        _refresh_style(self)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.setProperty("hovered", False)
+        _refresh_style(self)
+        super().leaveEvent(event)
+
+
+class PlaylistWidget(QWidget):
+    open_playlist_requested = Signal(object)
+    create_playlist_requested = Signal()
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        on_open_playlist=None,
+        on_create_playlist=None,
+    ) -> None:
+        super().__init__(parent)
         self.playlists = []
+        if on_open_playlist:
+            self.open_playlist_requested.connect(on_open_playlist)
+        if on_create_playlist:
+            self.create_playlist_requested.connect(on_create_playlist)
 
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=16, pady=(8, 4))
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 8, 16, 10)
+        root.setSpacing(4)
 
-        ctk.CTkLabel(
-            header,
-            text="PLAYLISTS",
-            font=ctk.CTkFont("Segoe UI", 10, "bold"),
-            text_color=SUBTEXTO,
-        ).pack(side="left")
+        title = QLabel("PLAYLISTS")
+        title.setObjectName("sectionLabel")
+        root.addWidget(title)
 
-        self.list_frame = ctk.CTkScrollableFrame(
-            self,
-            orientation="horizontal",
-            fg_color=FUNDO,
-            corner_radius=0,
-            height=128,
-            scrollbar_button_color=CINZA_BD,
-            scrollbar_button_hover_color=SUBTEXTO,
-        )
-        self.list_frame.pack(fill="x", padx=8, pady=(0, 10))
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setFixedHeight(118)
+
+        self.content = QWidget()
+        self.content.setObjectName("scrollContent")
+        self.list_layout = QHBoxLayout(self.content)
+        self.list_layout.setContentsMargins(0, 4, 0, 4)
+        self.list_layout.setSpacing(10)
+        self.scroll.setWidget(self.content)
+        root.addWidget(self.scroll)
 
         self.render()
 
-    def set_playlists(self, playlists):
+    def set_playlists(self, playlists) -> None:
         self.playlists = playlists or []
         self.render()
 
-    def render(self):
-        for widget in self.list_frame.winfo_children():
-            widget.destroy()
+    def render(self) -> None:
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
-        ctk.CTkButton(
-            self.list_frame,
-            text="+",
-            command=self.on_create_playlist,
-            width=58,
-            height=86,
-            corner_radius=14,
-            fg_color=AZUL,
-            hover_color=AZUL_HOV,
-            text_color=BRANCO,
-            font=ctk.CTkFont("Segoe UI", 28, "bold"),
-        ).pack(side="left", padx=(8, 10), pady=10)
+        add_button = QPushButton("+")
+        add_button.setObjectName("iconButton")
+        add_button.setFixedSize(58, 86)
+        add_button.clicked.connect(self.create_playlist_requested.emit)
+        self.list_layout.addWidget(add_button)
 
         if not self.playlists:
-            ctk.CTkLabel(
-                self.list_frame,
-                text="Nenhuma playlist criada ainda.",
-                font=ctk.CTkFont("Segoe UI", 12),
-                text_color=SUBTEXTO,
-            ).pack(side="left", padx=8, pady=36)
+            empty = QLabel("Nenhuma playlist criada ainda.")
+            empty.setObjectName("emptyLabel")
+            self.list_layout.addWidget(empty)
+            self.list_layout.addStretch(1)
             return
 
         for playlist in self.playlists:
-            total_musicas = getattr(playlist, "total_musicas", 0)
-            card = ctk.CTkFrame(
-                self.list_frame,
-                width=132,
-                height=86,
-                fg_color=BRANCO,
-                corner_radius=14,
-                border_width=1,
-                border_color=CINZA_BD,
-                cursor="hand2",
-            )
-            card.pack(side="left", padx=6, pady=10)
-            card.pack_propagate(False)
+            self.list_layout.addWidget(self._create_playlist_card(playlist))
+        self.list_layout.addStretch(1)
 
-            ctk.CTkLabel(
-                card,
-                text=playlist.nome,
-                font=ctk.CTkFont("Segoe UI", 12, "bold"),
-                text_color=TEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=12, pady=(16, 4))
+    def _create_playlist_card(self, playlist) -> QFrame:
+        card = _ClickableFrame()
+        card.setProperty("playlistCard", True)
+        card.setFixedSize(132, 86)
+        card.clicked.connect(lambda item=playlist: self.open_playlist_requested.emit(item))
 
-            ctk.CTkLabel(
-                card,
-                text=f"{total_musicas} musica(s)",
-                font=ctk.CTkFont("Segoe UI", 10),
-                text_color=SUBTEXTO,
-                anchor="w",
-            ).pack(fill="x", padx=12)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 12, 12, 10)
+        layout.setSpacing(4)
 
-            def abrir_playlist(event=None, item=playlist):
-                self.on_open_playlist(item)
+        name = QLabel(getattr(playlist, "nome", "") or "-")
+        name.setWordWrap(True)
+        font = name.font()
+        font.setBold(True)
+        name.setFont(font)
 
-            def on_enter(event, frame=card):
-                frame.configure(border_color=AZUL)
+        total = getattr(playlist, "total_musicas", 0)
+        count = QLabel(f"{total} musica(s)")
+        count.setObjectName("mutedLabel")
 
-            def on_leave(event, frame=card):
-                frame.configure(border_color=CINZA_BD)
-
-            card.bind("<Button-1>", abrir_playlist)
-            card.bind("<Enter>", on_enter)
-            card.bind("<Leave>", on_leave)
-            for child in card.winfo_children():
-                child.bind("<Button-1>", abrir_playlist)
-                child.bind("<Enter>", on_enter)
-                child.bind("<Leave>", on_leave)
+        layout.addWidget(name)
+        layout.addStretch(1)
+        layout.addWidget(count)
+        return card

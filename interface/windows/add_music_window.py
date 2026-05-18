@@ -1,410 +1,272 @@
 import os
-import queue
-import threading
-
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
 from urllib.parse import urlparse
+
+from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from interface.windows.spotify_search_window import SpotifySearchWindow
 from services.music_service import add_musica
 from services.spotify_service import SpotifyService
 
-AZUL = "#2B5BA8"
-AZUL_HOV = "#1E4280"
-BRANCO = "#ffffff"
-FUNDO = "#f0f0eb"
-CARD_BG = "#ffffff"
-TEXTO = "#1a1a1a"
-SUBTEXTO = "#666666"
-CINZA_BD = "#e0e0e0"
 
-# Variaveis globais para armazenar caminhos dos arquivos
-caminho_audio = ""
-caminho_partitura = ""
+class SpotifySearchWorker(QThread):
+    resultado = Signal(int, str, str, object)
+
+    def __init__(self, token: int, termo: str, parent=None) -> None:
+        super().__init__(parent)
+        self.token = token
+        self.termo = termo
+
+    def run(self) -> None:
+        try:
+            resultados = SpotifyService().buscar_musicas(self.termo, limit=5)
+            status = "success" if resultados else "not_found"
+            self.resultado.emit(self.token, self.termo, status, resultados)
+        except Exception:
+            self.resultado.emit(self.token, self.termo, "error", [])
 
 
-def abrir_janela_adicionar():
-    global caminho_audio, caminho_partitura
-    caminho_audio = ""
-    caminho_partitura = ""
+class AddMusicWindow(QDialog):
+    musica_salva = Signal()
 
-    spotify_service = SpotifyService()
-    spotify_result_queue = queue.Queue()
-    spotify_job_token = 0
-    spotify_loading = False
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.caminho_audio = ""
+        self.caminho_partitura = ""
+        self._spotify_token = 0
+        self._spotify_worker: SpotifySearchWorker | None = None
 
-    janela = ctk.CTkToplevel()
-    janela.title("Adicionar Musica")
-    janela.geometry("480x720")
-    janela.configure(fg_color=FUNDO)
-    janela.resizable(False, True)
-    janela.grab_set()
-    janela.focus_force()
+        self.setWindowTitle("Adicionar Musica")
+        self.resize(480, 720)
+        self.setMinimumHeight(560)
+        self.setModal(True)
 
-    header = ctk.CTkFrame(janela, fg_color=BRANCO, corner_radius=0)
-    header.pack(fill="x")
-    ctk.CTkLabel(
-        header,
-        text="Adicionar Musica",
-        font=ctk.CTkFont("Segoe UI", 16, "bold"),
-        text_color=TEXTO,
-    ).pack(side="left", padx=24, pady=18)
+        self._build_ui()
 
-    scroll = ctk.CTkScrollableFrame(
-        janela,
-        fg_color=FUNDO,
-        corner_radius=0,
-        scrollbar_button_color=CINZA_BD,
-        scrollbar_button_hover_color=SUBTEXTO,
-    )
-    scroll.pack(fill="both", expand=True)
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-    def secao(pai, titulo):
-        ctk.CTkLabel(
-            pai,
-            text=titulo,
-            font=ctk.CTkFont("Segoe UI", 10, "bold"),
-            text_color=SUBTEXTO,
-            anchor="w",
-        ).pack(anchor="w", padx=24, pady=(16, 4))
+        header = QFrame()
+        header.setObjectName("header")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(24, 18, 24, 18)
+        title = QLabel("Adicionar Musica")
+        title.setObjectName("titleLabel")
+        header_layout.addWidget(title)
+        root.addWidget(header)
 
-    def campo_entrada(pai, placeholder=""):
-        entrada = ctk.CTkEntry(
-            pai,
-            placeholder_text=placeholder,
-            fg_color=BRANCO,
-            border_color=CINZA_BD,
-            border_width=1,
-            text_color=TEXTO,
-            placeholder_text_color=SUBTEXTO,
-            font=ctk.CTkFont("Segoe UI", 12),
-            corner_radius=8,
-            height=40,
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content.setObjectName("scrollContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(0)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+        card = QFrame()
+        card.setObjectName("card")
+        self.form_layout = QVBoxLayout(card)
+        self.form_layout.setContentsMargins(24, 16, 24, 24)
+        self.form_layout.setSpacing(8)
+        content_layout.addWidget(card)
+        content_layout.addStretch(1)
+
+        self._add_section("BUSCAR MUSICA")
+        search_box = QFrame()
+        search_box.setObjectName("searchBox")
+        search_layout = QHBoxLayout(search_box)
+        search_layout.setContentsMargins(10, 2, 6, 2)
+        search_layout.setSpacing(6)
+        self.spotify_entry = QLineEdit()
+        self.spotify_entry.setObjectName("searchInput")
+        self.spotify_entry.setPlaceholderText("Buscar musica no Spotify...")
+        self.spotify_entry.returnPressed.connect(self._buscar_spotify)
+        self.spotify_button = QPushButton("Buscar")
+        self.spotify_button.clicked.connect(self._buscar_spotify)
+        search_layout.addWidget(self.spotify_entry, 1)
+        search_layout.addWidget(self.spotify_button)
+        self.form_layout.addWidget(search_box)
+
+        self.nome_entry = self._add_line_edit("NOME", "Nome da musica")
+        self.artista_entry = self._add_line_edit("ARTISTA", "Nome do artista")
+        self.album_entry = self._add_line_edit("ALBUM", "Nome do album")
+        self.ano_entry = self._add_line_edit("ANO", "Ex: 2024")
+        self._add_separator()
+        self.cifra_text = self._add_text_edit("CIFRA  (acordes)", 110)
+        self.tablatura_text = self._add_text_edit("TABLATURA  (ASCII)", 130)
+        self.tablatura_text.setPlainText(
+            "E|--0--| (Mi aguda)\n"
+            "B|--2--|\n"
+            "G|--2--|\n"
+            "D|--2--|\n"
+            "A|--0--|\n"
+            "E|-----| (Mi grave)"
         )
-        entrada.pack(fill="x", padx=24, pady=(0, 2))
-        return entrada
+        self._add_separator()
 
-    def campo_texto(pai, altura=6):
-        frame = ctk.CTkFrame(
-            pai,
-            fg_color=BRANCO,
-            corner_radius=8,
-            border_width=1,
-            border_color=CINZA_BD,
+        self.audio_label = self._add_file_picker("AUDIO", "Nenhum arquivo selecionado", "SELECIONAR AUDIO", self._selecionar_audio)
+        self.link_entry = self._add_line_edit("LINK EXTERNO", "https://youtube.com/... ou https://open.spotify.com/...")
+        self.partitura_label = self._add_file_picker("PARTITURA  (PDF)", "Nenhum arquivo selecionado", "SELECIONAR PARTITURA", self._selecionar_partitura)
+        self._add_separator()
+
+        save_button = QPushButton("SALVAR MUSICA")
+        save_button.clicked.connect(self._salvar)
+        self.form_layout.addWidget(save_button)
+
+    def _add_section(self, text: str) -> None:
+        label = QLabel(text)
+        label.setObjectName("sectionLabel")
+        self.form_layout.addWidget(label)
+
+    def _add_line_edit(self, label: str, placeholder: str) -> QLineEdit:
+        self._add_section(label)
+        entry = QLineEdit()
+        entry.setPlaceholderText(placeholder)
+        self.form_layout.addWidget(entry)
+        return entry
+
+    def _add_text_edit(self, label: str, height: int) -> QPlainTextEdit:
+        self._add_section(label)
+        text = QPlainTextEdit()
+        text.setObjectName("monoText")
+        text.setFixedHeight(height)
+        text.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.form_layout.addWidget(text)
+        return text
+
+    def _add_separator(self) -> None:
+        line = QFrame()
+        line.setObjectName("separator")
+        self.form_layout.addWidget(line)
+
+    def _add_file_picker(self, label: str, empty: str, button_text: str, slot) -> QLabel:
+        self._add_section(label)
+        selected = QLabel(empty)
+        selected.setObjectName("mutedLabel")
+        self.form_layout.addWidget(selected)
+        button = QPushButton(button_text)
+        button.setObjectName("secondaryButton")
+        button.clicked.connect(slot)
+        self.form_layout.addWidget(button)
+        return selected
+
+    def _selecionar_audio(self) -> None:
+        arquivo, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar Audio",
+            "",
+            "Audio files (*.mp3 *.wav);;All files (*.*)",
         )
-        frame.pack(fill="x", padx=24, pady=(0, 2))
-        txt = ctk.CTkTextbox(
-            frame,
-            height=altura * 20,
-            font=ctk.CTkFont("Courier New", 11),
-            fg_color=BRANCO,
-            text_color=TEXTO,
-            corner_radius=8,
-            wrap="none",
-        )
-        txt.pack(fill="both", expand=True, padx=2, pady=2)
-        return txt
+        if arquivo:
+            self.caminho_audio = arquivo
+            self.audio_label.setText(os.path.basename(arquivo))
 
-    def btn_arquivo(pai, icone, texto, cmd):
-        ctk.CTkButton(
-            pai,
-            text=f"  {icone}   {texto}",
-            command=cmd,
-            fg_color=CINZA_BD,
-            hover_color="#d0d0d0",
-            text_color=TEXTO,
-            font=ctk.CTkFont("Segoe UI", 11, "bold"),
-            corner_radius=8,
-            height=38,
-            anchor="w",
-        ).pack(fill="x", padx=24, pady=(0, 4))
+    def _selecionar_partitura(self) -> None:
+        arquivo, _ = QFileDialog.getOpenFileName(self, "Selecionar Partitura", "", "PDF files (*.pdf)")
+        if arquivo:
+            self.caminho_partitura = arquivo
+            self.partitura_label.setText(os.path.basename(arquivo))
 
-    def url_valida(url):
+    def _url_valida(self, url: str) -> bool:
         if not url:
             return True
         partes = urlparse(url)
         return partes.scheme in {"http", "https"} and bool(partes.netloc)
 
-    card = ctk.CTkFrame(
-        scroll,
-        fg_color=CARD_BG,
-        corner_radius=16,
-        border_width=1,
-        border_color=CINZA_BD,
-    )
-    card.pack(fill="x", padx=16, pady=16)
-
-    secao(card, "BUSCAR MUSICA")
-    frame_busca = ctk.CTkFrame(
-        card,
-        fg_color=BRANCO,
-        corner_radius=8,
-        border_width=1,
-        border_color=CINZA_BD,
-    )
-    frame_busca.pack(fill="x", padx=24, pady=(0, 2))
-
-    entry_musica = ctk.CTkEntry(
-        frame_busca,
-        placeholder_text="Buscar musica no Spotify...",
-        fg_color=BRANCO,
-        border_width=0,
-        text_color=TEXTO,
-        placeholder_text_color=SUBTEXTO,
-        font=ctk.CTkFont("Segoe UI", 12),
-        corner_radius=8,
-        height=38,
-    )
-    entry_musica.pack(side="left", fill="x", expand=True, padx=(12, 4), pady=2)
-
-    btn_buscar = ctk.CTkButton(
-        frame_busca,
-        text="Buscar",
-        fg_color=AZUL,
-        hover_color=AZUL_HOV,
-        text_color=BRANCO,
-        font=ctk.CTkFont("Segoe UI", 11, "bold"),
-        corner_radius=8,
-        width=78,
-        height=32,
-    )
-    btn_buscar.pack(side="right", padx=(4, 6), pady=4)
-
-    secao(card, "NOME")
-    entrada_nome = campo_entrada(card, "Nome da musica")
-
-    secao(card, "ARTISTA")
-    entrada_artista = campo_entrada(card, "Nome do artista")
-
-    secao(card, "ALBUM")
-    entrada_album = campo_entrada(card, "Nome do album")
-
-    secao(card, "ANO")
-    entrada_ano = campo_entrada(card, "Ex: 2024")
-
-    placeholder_busca_padrao = "Buscar musica no Spotify..."
-
-    def preencher_campo(campo, valor):
-        campo.delete(0, "end")
-        if valor:
-            campo.insert(0, valor)
-
-    def preencher_campos_musica(resultado):
-        preencher_campo(entrada_nome, resultado.get("nome", ""))
-        preencher_campo(entrada_artista, resultado.get("artista", ""))
-        preencher_campo(entrada_album, resultado.get("album", ""))
-        preencher_campo(entrada_ano, resultado.get("ano", ""))
-        preencher_campo(entrada_link, resultado.get("link_spotify", ""))
-
-    def atualizar_estado_busca(carregando, feedback=None):
-        nonlocal spotify_loading
-        spotify_loading = carregando
-        entry_musica.configure(
-            state="disabled" if carregando else "normal",
-            placeholder_text=feedback or placeholder_busca_padrao,
-        )
-        btn_buscar.configure(state="disabled" if carregando else "normal")
-
-    def limpar_feedback_busca():
-        if spotify_loading:
+    def _buscar_spotify(self) -> None:
+        termo = self.spotify_entry.text().strip()
+        if not termo or (self._spotify_worker and self._spotify_worker.isRunning()):
             return
-        entry_musica.configure(placeholder_text=placeholder_busca_padrao)
+        self._spotify_token += 1
+        self.spotify_entry.setEnabled(False)
+        self.spotify_button.setEnabled(False)
+        self.spotify_entry.setPlaceholderText("Buscando...")
+        self._spotify_worker = SpotifySearchWorker(self._spotify_token, termo, self)
+        self._spotify_worker.resultado.connect(self._receber_spotify)
+        self._spotify_worker.finished.connect(lambda: setattr(self, "_spotify_worker", None))
+        self._spotify_worker.finished.connect(self._spotify_worker.deleteLater)
+        self._spotify_worker.start()
 
-    def abrir_resultados_spotify(resultados):
-        SpotifySearchWindow(
-            master=janela,
-            resultados=resultados,
-            on_select=preencher_campos_musica,
-        )
-
-    def processar_fila_spotify():
-        if not janela.winfo_exists():
+    def _receber_spotify(self, token: int, termo: str, status: str, resultados) -> None:
+        if token != self._spotify_token:
             return
-
-        try:
-            while True:
-                job_token, termo_original, status, resultados = spotify_result_queue.get_nowait()
-                if job_token != spotify_job_token:
-                    continue
-
-                atualizar_estado_busca(False)
-
-                if entry_musica.get().strip() != termo_original:
-                    limpar_feedback_busca()
-                    continue
-
-                if status == "success":
-                    if len(resultados) == 1:
-                        preencher_campos_musica(resultados[0])
-                    else:
-                        abrir_resultados_spotify(resultados)
-                elif status == "not_found":
-                    messagebox.showinfo("Spotify", "Nenhuma musica encontrada.")
-                else:
-                    messagebox.showwarning("Spotify", "Erro ao buscar musica.")
-
-                limpar_feedback_busca()
-        except queue.Empty:
-            pass
-
-        janela.after(150, processar_fila_spotify)
-
-    def buscar_async(event=None):
-        nonlocal spotify_job_token
-        termo = entry_musica.get().strip()
-        if not termo or spotify_loading:
+        self.spotify_entry.setEnabled(True)
+        self.spotify_button.setEnabled(True)
+        self.spotify_entry.setPlaceholderText("Buscar musica no Spotify...")
+        if self.spotify_entry.text().strip() != termo:
             return
+        if status == "success":
+            if len(resultados) == 1:
+                self._preencher_campos(resultados[0])
+            else:
+                dialog = SpotifySearchWindow(self, resultados=resultados)
+                dialog.selected.connect(self._preencher_campos)
+                dialog.exec()
+        elif status == "not_found":
+            QMessageBox.information(self, "Spotify", "Nenhuma musica encontrada.")
+        else:
+            QMessageBox.warning(self, "Spotify", "Erro ao buscar musica.")
 
-        spotify_job_token += 1
-        job_token = spotify_job_token
-        atualizar_estado_busca(True, "Buscando...")
+    def _preencher_campos(self, resultado: dict) -> None:
+        self.nome_entry.setText(resultado.get("nome", ""))
+        self.artista_entry.setText(resultado.get("artista", ""))
+        self.album_entry.setText(resultado.get("album", ""))
+        self.ano_entry.setText(resultado.get("ano", ""))
+        self.link_entry.setText(resultado.get("link_spotify", ""))
 
-        def worker():
-            try:
-                resultados = spotify_service.buscar_musicas(termo, limit=5)
-                status = "success" if resultados else "not_found"
-                spotify_result_queue.put((job_token, termo, status, resultados))
-            except Exception:
-                spotify_result_queue.put((job_token, termo, "error", []))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    entry_musica.bind("<Return>", buscar_async)
-    btn_buscar.configure(command=buscar_async)
-    janela.after(150, processar_fila_spotify)
-
-    ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(
-        fill="x", padx=24, pady=(16, 0)
-    )
-
-    secao(card, "CIFRA  (acordes)")
-    entrada_cifra = campo_texto(card, altura=5)
-
-    secao(card, "TABLATURA  (ASCII)")
-    entrada_tablatura = campo_texto(card, altura=6)
-    entrada_tablatura.insert(
-        "1.0",
-        "E|--0--| (Mi aguda)\n"
-        "B|--2--|\n"
-        "G|--2--|\n"
-        "D|--2--|\n"
-        "A|--0--|\n"
-        "E|-----| (Mi grave)",
-    )
-
-    ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(
-        fill="x", padx=24, pady=(16, 0)
-    )
-
-    secao(card, "AUDIO")
-    label_audio = ctk.CTkLabel(
-        card,
-        text="Nenhum arquivo selecionado",
-        font=ctk.CTkFont("Segoe UI", 10),
-        text_color=SUBTEXTO,
-        anchor="w",
-    )
-    label_audio.pack(anchor="w", padx=24, pady=(0, 6))
-
-    def selecionar_audio():
-        global caminho_audio
-        arquivo = filedialog.askopenfilename(
-            parent=janela,
-            title="Selecionar Audio",
-            filetypes=[("Audio files", "*.mp3 *.wav"), ("All files", "*.*")],
-        )
-        if arquivo:
-            caminho_audio = arquivo
-            label_audio.configure(text=f"> {os.path.basename(arquivo)}", text_color=TEXTO)
-        janela.grab_set()
-        janela.focus_force()
-
-    btn_arquivo(card, ">", "SELECIONAR AUDIO", selecionar_audio)
-
-    secao(card, "LINK EXTERNO")
-    entrada_link = campo_entrada(
-        card, "https://youtube.com/... ou https://open.spotify.com/..."
-    )
-
-    secao(card, "PARTITURA  (PDF)")
-    label_partitura = ctk.CTkLabel(
-        card,
-        text="Nenhum arquivo selecionado",
-        font=ctk.CTkFont("Segoe UI", 10),
-        text_color=SUBTEXTO,
-        anchor="w",
-    )
-    label_partitura.pack(anchor="w", padx=24, pady=(0, 6))
-
-    def selecionar_partitura():
-        global caminho_partitura
-        arquivo = filedialog.askopenfilename(
-            parent=janela,
-            title="Selecionar Partitura",
-            filetypes=[("PDF files", "*.pdf")],
-        )
-        if arquivo:
-            caminho_partitura = arquivo
-            label_partitura.configure(text=f"PDF  {os.path.basename(arquivo)}", text_color=TEXTO)
-        janela.grab_set()
-        janela.focus_force()
-
-    btn_arquivo(card, "PDF", "SELECIONAR PARTITURA", selecionar_partitura)
-
-    ctk.CTkFrame(card, fg_color=CINZA_BD, height=1, corner_radius=0).pack(
-        fill="x", padx=24, pady=(12, 0)
-    )
-
-    def salvar():
-        nome = entrada_nome.get().strip()
-        artista = entrada_artista.get().strip()
-        album = entrada_album.get().strip()
-        ano_str = entrada_ano.get().strip()
-        cifra = entrada_cifra.get("1.0", "end").strip()
-        tablatura = entrada_tablatura.get("1.0", "end").strip()
-        link_externo = entrada_link.get().strip()
+    def _salvar(self) -> None:
+        nome = self.nome_entry.text().strip()
+        artista = self.artista_entry.text().strip()
+        album = self.album_entry.text().strip()
+        ano_str = self.ano_entry.text().strip()
+        cifra = self.cifra_text.toPlainText().strip()
+        tablatura = self.tablatura_text.toPlainText().strip()
+        link_externo = self.link_entry.text().strip()
 
         if not nome or not artista:
-            messagebox.showwarning("Atencao", "Nome e Artista sao obrigatorios!")
+            QMessageBox.warning(self, "Atencao", "Nome e Artista sao obrigatorios!")
             return
 
         ano = None
         if ano_str:
             if not ano_str.isdigit() or len(ano_str) != 4:
-                messagebox.showwarning("Atencao", "Ano invalido! Use o formato: 2024")
+                QMessageBox.warning(self, "Atencao", "Ano invalido! Use o formato: 2024")
                 return
             ano = int(ano_str)
 
-        if link_externo and not url_valida(link_externo):
-            messagebox.showwarning(
-                "Atencao",
-                "Informe uma URL valida, como um link do YouTube ou Spotify.",
-            )
+        if link_externo and not self._url_valida(link_externo):
+            QMessageBox.warning(self, "Atencao", "Informe uma URL valida, como um link do YouTube ou Spotify.")
             return
 
-        add_musica(
-            nome,
-            artista,
-            album,
-            ano,
-            cifra,
-            tablatura,
-            caminho_audio,
-            link_externo,
-            caminho_partitura,
-        )
-        messagebox.showinfo("Sucesso", f'"{nome}" salva com sucesso!')
-        janela.destroy()
+        add_musica(nome, artista, album, ano, cifra, tablatura, self.caminho_audio, link_externo, self.caminho_partitura)
+        QMessageBox.information(self, "Sucesso", f'"{nome}" salva com sucesso!')
+        self.musica_salva.emit()
+        self.accept()
 
-    ctk.CTkButton(
-        card,
-        text="SALVAR MUSICA",
-        command=salvar,
-        fg_color=AZUL,
-        hover_color=AZUL_HOV,
-        text_color=BRANCO,
-        font=ctk.CTkFont("Segoe UI", 12, "bold"),
-        corner_radius=10,
-        height=44,
-    ).pack(fill="x", padx=24, pady=(16, 24))
+    def closeEvent(self, event) -> None:
+        if self._spotify_worker and self._spotify_worker.isRunning():
+            self._spotify_worker.wait(3000)
+        super().closeEvent(event)
+
+
+def abrir_janela_adicionar(parent=None):
+    dialog = AddMusicWindow(parent)
+    dialog.exec()
+    return dialog
