@@ -130,7 +130,10 @@ class PlaylistController:
                     m.tablatura,
                     m.caminho_audio,
                     m.link_externo,
-                    m.caminho_partitura
+                    m.caminho_partitura,
+                    m.youtube_id,
+                    m.favorita,
+                    m.duracao
                 FROM playlist_musicas pm
                 INNER JOIN musicas m ON m.id = pm.musica_id
                 WHERE pm.playlist_id = ?

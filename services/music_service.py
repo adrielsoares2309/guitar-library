@@ -1,5 +1,12 @@
 import sqlite3
 from database.database import get_caminho_banco
+from services.metadata_extractor import MetadataExtractor
+
+
+MUSIC_COLUMNS = """
+    id, nome, artista, album, ano, cifra, tablatura, caminho_audio,
+    link_externo, caminho_partitura, duracao
+"""
 
 
 def buscar_musica(nome):
@@ -23,8 +30,8 @@ def buscar_musica_completa(nome):
     conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id, nome, artista, album, ano, cifra, tablatura, caminho_audio, link_externo, caminho_partitura
+    cursor.execute(f"""
+        SELECT {MUSIC_COLUMNS}
         FROM musicas
         WHERE nome LIKE ?
     """, (f"%{nome}%",))
@@ -40,8 +47,8 @@ def listar_musicas():
     conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id, nome, artista, album, ano, cifra, tablatura, caminho_audio, link_externo, caminho_partitura
+    cursor.execute(f"""
+        SELECT {MUSIC_COLUMNS}
         FROM musicas
         ORDER BY nome ASC
     """)
@@ -62,8 +69,8 @@ def filtrar_musicas(texto):
     cursor = conn.cursor()
 
     like = f"%{texto}%"
-    cursor.execute("""
-        SELECT id, nome, artista, album, ano, cifra, tablatura, caminho_audio, link_externo, caminho_partitura
+    cursor.execute(f"""
+        SELECT {MUSIC_COLUMNS}
         FROM musicas
         WHERE nome    LIKE ?
            OR artista LIKE ?
@@ -81,22 +88,26 @@ def filtrar_musicas(texto):
     return resultado
 
 
-def add_musica(nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura):
+def add_musica(nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura, duracao=None):
+    duracao_audio = duracao
+    if duracao_audio is None:
+        duracao_audio = MetadataExtractor.obter_duracao(audio)
 
     conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
 
     cursor.execute("""
         INSERT INTO musicas
-        (nome, artista, album, ano, cifra, tablatura, caminho_audio, link_externo, caminho_partitura)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura))
+        (nome, artista, album, ano, cifra, tablatura, caminho_audio, link_externo, caminho_partitura, duracao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura, duracao_audio))
 
     conn.commit()
     conn.close()
 
 
 def editar_musica(id, nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura):
+    duracao_audio = MetadataExtractor.obter_duracao(audio)
 
     conn = sqlite3.connect(get_caminho_banco())
     cursor = conn.cursor()
@@ -104,9 +115,9 @@ def editar_musica(id, nome, artista, album, ano, cifra, tablatura, audio, link_e
     cursor.execute("""
         UPDATE musicas
         SET nome = ?, artista = ?, album = ?, ano = ?, cifra = ?, tablatura = ?,
-            caminho_audio = ?, link_externo = ?, caminho_partitura = ?
+            caminho_audio = ?, link_externo = ?, caminho_partitura = ?, duracao = ?
         WHERE id = ?
-    """, (nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura, id))
+    """, (nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura, duracao_audio, id))
 
     conn.commit()
     conn.close()

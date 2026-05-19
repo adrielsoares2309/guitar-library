@@ -22,9 +22,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.player.playback_controller import PlaybackController
 from interface.components.playlist_widget import PlaylistWidget
 from interface.windows.add_music_window import AddMusicWindow
 from interface.windows.edit_music_window import EditMusicWindow
+from interface.windows.music_player_window import MusicPlayerWindow
 from interface.windows.playlist_window import PlaylistWindow
 from services.music_service import excluir_musica, filtrar_musicas, listar_musicas
 from services.playlist_service import create_playlist, get_all_playlists
@@ -37,6 +39,7 @@ def _refresh_style(widget: QWidget) -> None:
 
 class _TableRow(QFrame):
     clicked = Signal(object)
+    double_clicked = Signal(object)
 
     def __init__(self, musica, alternate: bool, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -70,6 +73,15 @@ class _TableRow(QFrame):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.musica)
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.double_clicked.emit(self.musica)
+        super().mouseDoubleClickEvent(event)
+
+    def set_selected(self, selected: bool) -> None:
+        self.setProperty("selected", selected)
+        _refresh_style(self)
 
     def enterEvent(self, event) -> None:
         self.setProperty("hovered", True)
@@ -111,6 +123,10 @@ class MainWindow(QMainWindow):
         self.musica_atual = None
         self.sidebar_visible = False
         self._open_dialogs = []
+        self.playback_controller = PlaybackController(parent=self)
+        self.player_window: MusicPlayerWindow | None = None
+        self.music_rows: list[_TableRow] = []
+        self.musicas_visiveis = []
 
         self.setWindowTitle("Gralha")
         self.resize(680, 560)
@@ -251,9 +267,15 @@ class MainWindow(QMainWindow):
 
     def abrir_playlist(self, playlist) -> None:
         dialog = PlaylistWindow(self, playlist_id=playlist.id)
+        dialog.musicaSelecionada.connect(self.abrir_janela_musica)
+        self.playback_controller.music_changed.connect(dialog.sincronizar_musica_atual)
         dialog.playlist_updated.connect(self.atualizar_playlists)
         dialog.playlist_deleted.connect(self._playlist_deleted)
-        dialog.exec()
+        dialog.destroyed.connect(lambda _=None, opened=dialog: self._forget_dialog(opened))
+        self._open_dialogs.append(dialog)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def _playlist_deleted(self) -> None:
         self.atualizar_playlists()
@@ -276,6 +298,8 @@ class MainWindow(QMainWindow):
         self._clear_content()
         if musicas is None:
             musicas = listar_musicas()
+        self.musicas_visiveis = list(musicas)
+        self.music_rows = []
 
         scroll, _, layout = self._create_scroll()
         self.content_layout.addWidget(scroll)
@@ -301,13 +325,39 @@ class MainWindow(QMainWindow):
 
         for index, musica in enumerate(musicas):
             row = _TableRow(musica, alternate=bool(index % 2))
-            row.clicked.connect(self.mostrar_card)
+            row.clicked.connect(self.selecionar_musica)
+            row.double_clicked.connect(self.abrir_janela_musica)
+            self.music_rows.append(row)
             layout.addWidget(row)
         layout.addStretch(1)
 
+    def selecionar_musica(self, musica) -> None:
+        self.musica_atual = musica
+        music_id = self._music_id(musica)
+        for row in self.music_rows:
+            row.set_selected(self._music_id(row.musica) == music_id)
+
+    def abrir_janela_musica(self, musica, fila=None) -> None:
+        self.selecionar_musica(musica)
+        if self.player_window is None:
+            self.player_window = MusicPlayerWindow(self.playback_controller, self)
+        self.player_window.reproduzir(musica, list(fila or self.musicas_visiveis))
+
+    def _forget_dialog(self, dialog) -> None:
+        if dialog in self._open_dialogs:
+            self._open_dialogs.remove(dialog)
+
+    @staticmethod
+    def _music_id(musica) -> object:
+        if hasattr(musica, "id"):
+            return musica.id
+        if isinstance(musica, (tuple, list)) and musica:
+            return musica[0]
+        return None
+
     def mostrar_card(self, musica) -> None:
         self.musica_atual = musica
-        _, nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura = musica
+        _, nome, artista, album, ano, cifra, tablatura, audio, link_externo, partitura, *_ = musica
         self._clear_content()
 
         scroll, _, layout = self._create_scroll()
@@ -381,8 +431,6 @@ class MainWindow(QMainWindow):
         resultados = filtrar_musicas(texto)
         if not resultados:
             self.mostrar_nao_encontrado()
-        elif len(resultados) == 1:
-            self.mostrar_card(resultados[0])
         else:
             self.mostrar_lista(resultados)
 
@@ -451,5 +499,5 @@ def iniciar_interface() -> None:
         with open(qss_path, "r", encoding="utf-8") as theme_file:
             app.setStyleSheet(theme_file.read())
     window = MainWindow()
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec())

@@ -25,6 +25,7 @@ def _garantir_colunas_musicas(cursor):
         "link_externo": "TEXT",
         "youtube_id": "TEXT",
         "favorita": "BOOLEAN DEFAULT 0",
+        "duracao": "INTEGER",
     }
 
     for nome_coluna, definicao in novas_colunas.items():
@@ -50,7 +51,8 @@ def criar_tabela():
                 link_externo TEXT,
                 caminho_partitura TEXT,
                 youtube_id TEXT,
-                favorita BOOLEAN DEFAULT 0
+                favorita BOOLEAN DEFAULT 0,
+                duracao INTEGER
             )
             """
         )

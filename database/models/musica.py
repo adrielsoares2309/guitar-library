@@ -4,7 +4,7 @@ class Musica:
     def __init__(self, id, nome, artista, album=None, ano=None,
                  cifra=None, tablatura=None,
                  caminho_audio=None, link_externo=None, caminho_partitura=None,
-                 youtube_id=None, favorita=None):
+                 youtube_id=None, favorita=None, duracao=None):
         self.id                = id
         self.nome              = nome
         self.artista           = artista
@@ -17,6 +17,7 @@ class Musica:
         self.caminho_partitura = caminho_partitura
         self.youtube_id        = youtube_id
         self.favorita          = favorita
+        self.duracao           = duracao
 
     # ── Fábrica a partir de linha do banco ────────────────────
     @classmethod

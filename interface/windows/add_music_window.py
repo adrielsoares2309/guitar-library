@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from interface.windows.spotify_search_window import SpotifySearchWindow
-from services.music_service import add_musica
+from services.music_importer import MusicImporter
 from services.spotify_service import SpotifyService
 
 
@@ -255,7 +255,17 @@ class AddMusicWindow(QDialog):
             QMessageBox.warning(self, "Atencao", "Informe uma URL valida, como um link do YouTube ou Spotify.")
             return
 
-        add_musica(nome, artista, album, ano, cifra, tablatura, self.caminho_audio, link_externo, self.caminho_partitura)
+        MusicImporter.importar_musica(
+            nome,
+            artista,
+            album,
+            ano,
+            cifra,
+            tablatura,
+            self.caminho_audio,
+            link_externo,
+            self.caminho_partitura,
+        )
         QMessageBox.information(self, "Sucesso", f'"{nome}" salva com sucesso!')
         self.musica_salva.emit()
         self.accept()

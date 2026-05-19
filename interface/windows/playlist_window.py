@@ -1,6 +1,3 @@
-import os
-import webbrowser
-
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QDialog,
@@ -10,7 +7,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QPlainTextEdit,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -33,6 +29,7 @@ def _refresh_style(widget: QWidget) -> None:
 
 class _MusicRow(QFrame):
     clicked = Signal(object)
+    double_clicked = Signal(object)
 
     def __init__(self, musica, alternate: bool, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -72,6 +69,11 @@ class _MusicRow(QFrame):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self.musica)
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.double_clicked.emit(self.musica)
+        super().mouseDoubleClickEvent(event)
 
     def enterEvent(self, event) -> None:
         if not self.property("selected"):
@@ -164,32 +166,10 @@ class AddToPlaylistDialog(QDialog):
         self.accept()
 
 
-class TextViewerDialog(QDialog):
-    def __init__(self, titulo: str, conteudo: str, parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(titulo)
-        self.resize(500, 440)
-        self.setModal(True)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 20)
-        root.setSpacing(10)
-
-        title = QLabel(titulo.upper())
-        title.setObjectName("titleLabel")
-        root.addWidget(title)
-
-        text = QPlainTextEdit()
-        text.setObjectName("viewerText")
-        text.setLineWrapMode(QPlainTextEdit.NoWrap)
-        text.setPlainText(conteudo or "")
-        text.setReadOnly(True)
-        root.addWidget(text, 1)
-
-
 class PlaylistWindow(QDialog):
     playlist_updated = Signal()
     playlist_deleted = Signal()
+    musicaSelecionada = Signal(object, object)
 
     def __init__(self, parent=None, playlist_id=None, on_playlist_updated=None, on_playlist_deleted=None, master=None):
         super().__init__(parent or master)
@@ -209,7 +189,8 @@ class PlaylistWindow(QDialog):
         self.setWindowTitle("Playlist")
         self.resize(860, 560)
         self.setMinimumSize(760, 520)
-        self.setModal(True)
+        self.setModal(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
@@ -282,12 +263,6 @@ class PlaylistWindow(QDialog):
         self.music_scroll.setWidget(self.music_content)
         content_layout.addWidget(self.music_scroll, 1)
 
-        self.detail_area = QWidget()
-        detail_layout = QVBoxLayout(self.detail_area)
-        detail_layout.setContentsMargins(0, 0, 0, 0)
-        self.detail_layout = detail_layout
-        content_layout.addWidget(self.detail_area)
-
         self.side_panel = QFrame()
         self.side_panel.setObjectName("panel")
         self.side_panel.setFixedWidth(250)
@@ -314,10 +289,6 @@ class PlaylistWindow(QDialog):
 
         self.render_music_list()
         self.render_side_panel()
-        if self.musica_atual:
-            self.render_music_detail()
-        else:
-            self.clear_detail()
         self.playlist_updated.emit()
 
     def _clear_layout(self, layout: QVBoxLayout) -> None:
@@ -345,6 +316,7 @@ class PlaylistWindow(QDialog):
         for index, musica in enumerate(self.playlist.musicas):
             row = _MusicRow(musica, alternate=bool(index % 2))
             row.clicked.connect(self._select_music)
+            row.double_clicked.connect(self._play_music)
             self.music_rows.append(row)
             self.music_layout.addWidget(row)
         self.no_results_label = QLabel("No songs found")
@@ -380,63 +352,30 @@ class PlaylistWindow(QDialog):
         if hasattr(self, "no_results_label"):
             self.no_results_label.setVisible(bool(self.playlist.musicas and not visible_count))
 
-        if self.musica_atual and self.musica_atual.id not in ids_visiveis:
-            self.clear_detail()
-
     def _select_music(self, musica) -> None:
         self.musica_atual = musica
-        for row in self.music_rows:
-            row.set_selected(row.musica.id == musica.id)
-        self.render_music_detail()
+        self._sync_selected_row()
 
-    def render_music_detail(self) -> None:
-        self.clear_detail()
-        if not self.musica_atual:
+    def _play_music(self, musica) -> None:
+        self.musica_atual = musica
+        self._sync_selected_row()
+        self.musicaSelecionada.emit(musica, list(self.playlist.musicas if self.playlist else [musica]))
+
+    def sincronizar_musica_atual(self, musica) -> None:
+        if not musica:
             return
+        current_id = getattr(musica, "id", None)
+        if current_id is None and isinstance(musica, (tuple, list)) and musica:
+            current_id = musica[0]
+        self.musica_atual = next(
+            (item for item in (self.playlist.musicas if self.playlist else []) if item.id == current_id),
+            self.musica_atual,
+        )
+        self._sync_selected_row()
 
-        card = QFrame()
-        card.setObjectName("card")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 16, 20, 18)
-        layout.setSpacing(8)
-
-        title = QLabel((self.musica_atual.nome or "").upper())
-        title.setObjectName("titleLabel")
-        artist = QLabel(self.musica_atual.artista or "-")
-        artist.setObjectName("mutedLabel")
-        layout.addWidget(title)
-        layout.addWidget(artist)
-
-        partes = []
-        if self.musica_atual.album:
-            partes.append(self.musica_atual.album)
-        if self.musica_atual.ano:
-            partes.append(str(self.musica_atual.ano))
-        if partes:
-            meta = QLabel("  .  ".join(partes))
-            meta.setObjectName("mutedLabel")
-            layout.addWidget(meta)
-
-        line = QFrame()
-        line.setObjectName("separator")
-        layout.addWidget(line)
-
-        for text, slot, active in [
-            ("CIFRA", lambda: self.abrir_viewer("Cifra", self.musica_atual.cifra), bool(self.musica_atual.cifra)),
-            ("TABLATURA", lambda: self.abrir_viewer("Tablatura", self.musica_atual.tablatura), bool(self.musica_atual.tablatura)),
-            ("PARTITURA", self.visualizar_partitura, bool(self.musica_atual.caminho_partitura)),
-            ("AUDIO", self.tocar_audio, bool(self.musica_atual.caminho_audio)),
-            ("LINK EXTERNO", self.abrir_link_externo, bool(self.musica_atual.link_externo)),
-        ]:
-            button = QPushButton(text)
-            button.setEnabled(active)
-            button.clicked.connect(slot)
-            layout.addWidget(button)
-
-        self.detail_layout.addWidget(card)
-
-    def clear_detail(self) -> None:
-        self._clear_layout(self.detail_layout)
+    def _sync_selected_row(self) -> None:
+        for row in self.music_rows:
+            row.set_selected(bool(self.musica_atual and row.musica.id == self.musica_atual.id))
 
     def toggle_side_panel(self) -> None:
         self.side_panel_visible = not self.side_panel_visible
@@ -521,32 +460,6 @@ class PlaylistWindow(QDialog):
         self.playlist_deleted.emit()
         self.accept()
 
-    def abrir_viewer(self, titulo: str, conteudo: str) -> None:
-        TextViewerDialog(titulo, conteudo or "", self).exec()
-
-    def tocar_audio(self) -> None:
-        caminho_audio = self.musica_atual.caminho_audio if self.musica_atual else ""
-        if not caminho_audio:
-            return
-        if os.path.exists(caminho_audio):
-            os.startfile(caminho_audio)
-        else:
-            QMessageBox.warning(self, "Aviso", f"Arquivo de audio nao encontrado:\n{caminho_audio}")
-
-    def abrir_link_externo(self) -> None:
-        link_externo = self.musica_atual.link_externo if self.musica_atual else ""
-        if link_externo:
-            webbrowser.open(link_externo)
-
-    def visualizar_partitura(self) -> None:
-        partitura = self.musica_atual.caminho_partitura if self.musica_atual else ""
-        if not partitura:
-            return
-        if os.path.exists(partitura):
-            os.startfile(partitura)
-        else:
-            QMessageBox.warning(self, "Aviso", f"Arquivo de partitura nao encontrado:\n{partitura}")
-
 
 def abrir_janela_playlist(master, playlist_id, on_playlist_updated=None, on_playlist_deleted=None):
     dialog = PlaylistWindow(
@@ -555,5 +468,10 @@ def abrir_janela_playlist(master, playlist_id, on_playlist_updated=None, on_play
         on_playlist_updated=on_playlist_updated,
         on_playlist_deleted=on_playlist_deleted,
     )
-    dialog.exec()
+    if hasattr(master, "_open_dialogs"):
+        master._open_dialogs.append(dialog)
+        dialog.destroyed.connect(lambda _=None, opened=dialog: master._forget_dialog(opened))
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
     return dialog
